@@ -37,18 +37,18 @@ export default function StorefrontSetup() {
 
   const fallbackToIpLocation = async () => {
     try {
-      const response = await fetch('https://ipapi.co/json/');
+      const response = await fetch('https://get.geojs.io/v1/ip/geo.json');
       const data = await response.json();
       if (data && data.latitude && data.longitude) {
         setCoordinates({
-          lat: data.latitude,
-          lng: data.longitude
+          lat: parseFloat(data.latitude),
+          lng: parseFloat(data.longitude)
         });
       } else {
         throw new Error('Invalid IP location data');
       }
     } catch (e) {
-      setLocationError("Failed to detect location. Please check your network.");
+      setLocationError("Failed to detect location. Please check your network or disable adblock.");
     } finally {
       setIsLocating(false);
     }
