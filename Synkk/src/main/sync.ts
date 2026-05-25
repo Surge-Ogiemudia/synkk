@@ -51,12 +51,14 @@ export async function executeSync() {
 
     // 4. Push to PSX catalog API
     console.log(`Pushing ${rawInventory.length} inventory items to cloud...`);
-    const storefrontData = getStore('storefront') || { slug: 'unknown-slug' };
+    const storefrontData = getStore('storefront') || { slug: 'unknown-slug', name: 'Unknown Pharmacy', coordinates: null };
     const syncBatchId = Date.now().toString();
 
     const axios = require('axios');
     const payload = {
       pharmacy_slug: storefrontData.slug,
+      pharmacy_name: storefrontData.name,
+      coordinates: storefrontData.coordinates,
       sync_batch_id: syncBatchId,
       inventory: rawInventory
     };

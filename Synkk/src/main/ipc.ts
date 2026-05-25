@@ -218,7 +218,7 @@ ${text.slice(0, 15000)}`;
     }
   });
 
-  ipcMain.handle('save-storefront-data', async (event, data: { slug: string, name: string }) => {
+  ipcMain.handle('save-storefront-data', async (event, data: { slug: string, name: string, coordinates: any }) => {
     try {
       setStore('storefront', data);
       return { success: true };

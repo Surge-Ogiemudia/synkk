@@ -7,12 +7,16 @@ export default function Done() {
   const location = useLocation();
   const slug = location.state?.slug || 'my-pharmacy';
   const name = location.state?.name || 'My Pharmacy';
+  const coordinates = location.state?.coordinates || null;
 
   useEffect(() => {
     // Save storefront data to backend
     // @ts-ignore
     const { ipcRenderer } = window.require('electron');
-    ipcRenderer.invoke('save-storefront-data', { slug, name });
+    ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates }).then(() => {
+      // Trigger an immediate initial sync to push products to the cloud instantly
+      ipcRenderer.invoke('trigger-sync');
+    });
 
     // Trigger confetti animation
     const duration = 3 * 1000;
