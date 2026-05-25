@@ -12,7 +12,11 @@ export async function analyzePOSSystem(pathOrUrl: string, sampleData: string) {
     });
   }
   if (!geminiClient) {
-    geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || 'AIzaSyAfG-5GmYs2E7l_0bpI6le35lnB0-_Vr5k';
+    if (!apiKey) {
+      console.warn('WARNING: Gemini API key not found in environment');
+    }
+    geminiClient = new GoogleGenerativeAI(apiKey);
   }
 
   // 1. Check if we already know this POS exactly from Knowledge Base
