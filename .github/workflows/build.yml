@@ -22,9 +22,11 @@ jobs:
         working-directory: ./Synkk
         run: npm install
 
-      - name: Build & Package Executable
+      - name: Build and Package
         working-directory: ./Synkk
         run: npm run package
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
