@@ -6,8 +6,8 @@
   "description": "Synkk Desktop Automation Client",
   "main": "dist-main/index.js",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"tsup src/main/index.ts --outDir dist-main --format cjs --external electron --watch --onSuccess \\\"electron .\\\"\"",
-    "build": "vite build && tsup src/main/index.ts --outDir dist-main --format cjs --external electron",
+    "dev": "concurrently -k \"vite\" \"tsup --watch --onSuccess \\\"electron .\\\"\"",
+    "build": "vite build && tsup",
     "preview": "vite preview",
     "package": "npm run build && electron-builder --win --config electron-builder.config.js"
   },
