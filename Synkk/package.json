@@ -1,0 +1,50 @@
+{
+  "name": "synkk",
+  "private": true,
+  "version": "1.0.0",
+  "author": "PharmaStackX",
+  "description": "Synkk Desktop Automation Client",
+  "main": "dist-main/index.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"tsup src/main/index.ts --outDir dist-main --format cjs --watch --onSuccess \\\"electron .\\\"\"",
+    "build": "vite build && tsup src/main/index.ts --outDir dist-main --format cjs",
+    "preview": "vite preview",
+    "package": "npm run build && electron-builder --win"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/nodemailer": "^8.0.0",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^9.2.1",
+    "electron": "^33.0.0",
+    "electron-builder": "^26.8.1",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^4.3.0",
+    "tsup": "^8.5.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "@google/genai": "^2.6.0",
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.16.1",
+    "better-sqlite3": "^12.10.0",
+    "canvas-confetti": "^1.9.4",
+    "chokidar": "^5.0.0",
+    "dotenv": "^17.4.2",
+    "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.3",
+    "lucide-react": "^1.16.0",
+    "mongodb": "^7.2.0",
+    "nodemailer": "^8.0.8",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.15.1"
+  }
+}
