@@ -30,4 +30,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Synkk-Windows-Installer
-          path: ./Synkk/dist-electron/*.exe
+          path: ./Synkk/dist-electron/**/*.exe
