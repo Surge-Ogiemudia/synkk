@@ -50,17 +50,25 @@ function createWindow() {
     e.preventDefault();
   });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+  let isQuitting = false;
+
+  mainWindow.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      mainWindow?.hide();
+    }
+  });
+
+  app.on('before-quit', () => {
+    isQuitting = true;
   });
 }
 
 app.whenReady().then(() => {
-  // Ensure the app starts silently in the background when the computer boots
   if (app.isPackaged) {
     app.setLoginItemSettings({
       openAtLogin: true,
-      openAsHidden: true, // Start minimized to tray
+      openAsHidden: true,
       path: app.getPath('exe')
     });
   }
@@ -70,11 +78,18 @@ app.whenReady().then(() => {
   setupUpdater();
   setupIpc();
 
+  // The missing 15-minute sync CRON JOB!
+  const { executeSync } = require('./sync');
+  setInterval(() => {
+    console.log("CRON: Running scheduled 15-minute background sync...");
+    executeSync().catch(console.error);
+  }, 15 * 60 * 1000);
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // Do nothing. The app stays in the system tray.
 });

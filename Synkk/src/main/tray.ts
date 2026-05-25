@@ -14,16 +14,17 @@ export function setupTray() {
   tray.setToolTip('Synkk Pharmacy Sync');
 
   tray.on('click', () => {
-    // Bring window to front
-    // This logic might need access to mainWindow from index
+    const { BrowserWindow } = require('electron');
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      win.show();
+      win.focus();
+    }
   });
 }
 
 export function updateTrayStatus(status: 'green' | 'amber' | 'red', lastSyncTime: string, medicinesCount: number) {
   currentStatus = status;
-  // Change icon based on status
-  // const iconPath = path.join(__dirname, `../../public/tray-icon-${status}.png`);
-  // tray?.setImage(nativeImage.createFromPath(iconPath));
 
   if (status === 'red') {
     new Notification({
@@ -38,16 +39,27 @@ export function updateTrayStatus(status: 'green' | 'amber' | 'red', lastSyncTime
 function updateTrayMenu(lastSyncTime: string = 'Never', medicinesCount: number = 0) {
   if (!tray) return;
 
+  const { BrowserWindow } = require('electron');
+
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Open Synkk', click: () => { /* open window */ } },
+    { label: 'Open Synkk', click: () => { 
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win) { win.show(); win.focus(); }
+    } },
     { type: 'separator' },
     { label: currentStatus === 'amber' ? 'Status: Offline - Queuing...' : `Last sync: ${lastSyncTime}`, enabled: false },
     { label: `Medicines synced: ${medicinesCount}`, enabled: false },
     { type: 'separator' },
-    { label: 'View my storefront', click: () => { /* open browser */ } },
-    { label: 'Sync now', click: () => { /* trigger manual sync */ } },
-    { label: 'Settings', click: () => { /* open settings view */ } },
-    { label: 'Help', click: () => { /* open help URL */ } },
+    { label: 'View my storefront', click: () => { 
+        const { shell } = require('electron');
+        const { getStore } = require('../store/local');
+        const slug = getStore('storefront')?.slug;
+        if (slug) shell.openExternal(`https://${slug}.psx.ng`);
+    } },
+    { label: 'Sync now', click: () => { 
+        const { executeSync } = require('./sync');
+        executeSync().catch(console.error);
+    } },
     { type: 'separator' },
     { label: 'Quit', click: () => { app.quit(); } }
   ]);

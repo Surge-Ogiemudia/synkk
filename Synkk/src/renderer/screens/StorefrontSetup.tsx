@@ -13,6 +13,8 @@ export default function StorefrontSetup() {
   const handleSyncLocation = () => {
     setIsLocating(true);
     setLocationError('');
+    
+    // First try HTML5 Geolocation (more accurate but might be blocked)
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -22,15 +24,32 @@ export default function StorefrontSetup() {
           });
           setIsLocating(false);
         },
-        (error) => {
-          console.error("Error getting location:", error);
-          setLocationError("Failed to get location. Please allow location access.");
-          setIsLocating(false);
+        async (error) => {
+          console.log("HTML5 Geolocation failed, falling back to IP location", error);
+          await fallbackToIpLocation();
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
       );
     } else {
-      setLocationError("Geolocation is not supported by your browser.");
+      fallbackToIpLocation();
+    }
+  };
+
+  const fallbackToIpLocation = async () => {
+    try {
+      const response = await fetch('https://ipapi.co/json/');
+      const data = await response.json();
+      if (data && data.latitude && data.longitude) {
+        setCoordinates({
+          lat: data.latitude,
+          lng: data.longitude
+        });
+      } else {
+        throw new Error('Invalid IP location data');
+      }
+    } catch (e) {
+      setLocationError("Failed to detect location. Please check your network.");
+    } finally {
       setIsLocating(false);
     }
   };
