@@ -243,18 +243,10 @@ ${text.slice(0, 15000)}`;
         return { success: true, tables: [path.basename(pathOrUrl)] };
       }
 
-      const { execSync } = require('child_process');
-      const tempPath = path.join(process.cwd(), `synkk-tables-${Date.now()}.js`);
-      const script = `
-        const Database = require('better-sqlite3');
-        const db = new Database('${pathOrUrl.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', { readonly: true });
-        const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
-        console.log(JSON.stringify(tables.map(t => t.name)));
-      `;
-      fs.writeFileSync(tempPath, script);
-      const output = execSync(`node "${tempPath}"`, { encoding: 'utf-8', cwd: process.cwd() });
-      fs.unlinkSync(tempPath);
-      return { success: true, tables: JSON.parse(output.trim()) };
+      const Database = require('better-sqlite3');
+      const db = new Database(pathOrUrl, { readonly: true });
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+      return { success: true, tables: tables.map((t: any) => t.name) };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -276,18 +268,10 @@ ${text.slice(0, 15000)}`;
         return { success: true, columns };
       }
 
-      const { execSync } = require('child_process');
-      const tempPath = path.join(process.cwd(), `synkk-columns-${Date.now()}.js`);
-      const script = `
-        const Database = require('better-sqlite3');
-        const db = new Database('${pathOrUrl.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', { readonly: true });
-        const columns = db.prepare("PRAGMA table_info('${tableName}')").all();
-        console.log(JSON.stringify(columns.map(c => c.name)));
-      `;
-      fs.writeFileSync(tempPath, script);
-      const output = execSync(`node "${tempPath}"`, { encoding: 'utf-8', cwd: process.cwd() });
-      fs.unlinkSync(tempPath);
-      return { success: true, columns: JSON.parse(output.trim()) };
+      const Database = require('better-sqlite3');
+      const db = new Database(pathOrUrl, { readonly: true });
+      const columns = db.prepare(`PRAGMA table_info('${tableName}')`).all();
+      return { success: true, columns: columns.map((c: any) => c.name) };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -314,18 +298,10 @@ ${text.slice(0, 15000)}`;
         return { success: true, rawSample };
       }
 
-      const { execSync } = require('child_process');
-      const tempPath = path.join(process.cwd(), `synkk-sample-${Date.now()}.js`);
-      const script = `
-        const Database = require('better-sqlite3');
-        const db = new Database('${pathOrUrl.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', { readonly: true });
-        const rows = db.prepare("SELECT * FROM '${tableName}' LIMIT 5").all();
-        console.log(JSON.stringify(rows));
-      `;
-      fs.writeFileSync(tempPath, script);
-      const output = execSync(`node "${tempPath}"`, { encoding: 'utf-8', cwd: process.cwd() });
-      fs.unlinkSync(tempPath);
-      return { success: true, rawSample: JSON.parse(output.trim()) };
+      const Database = require('better-sqlite3');
+      const db = new Database(pathOrUrl, { readonly: true });
+      const rows = db.prepare(`SELECT * FROM '${tableName}' LIMIT 5`).all();
+      return { success: true, rawSample: rows };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

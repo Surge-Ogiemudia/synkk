@@ -109,27 +109,12 @@ ${sampleData}`;
     
     if (schema.tableName && schema.tableName !== 'unknown' && (ext.endsWith('.db') || ext.endsWith('.sqlite') || ext.endsWith('.sqlite3'))) {
       try {
-        const fs = require('fs');
-        const path = require('path');
-        const os = require('os');
-        const { execSync } = require('child_process');
-        
-        const tempPath = path.join(process.cwd(), `synkk-sqlite-fetch-${Date.now()}.js`);
-        const script = `
-          const Database = require('better-sqlite3');
-          const db = new Database('${pathOrUrl.replace(/\\/g, '\\\\')}', { readonly: true });
-          const rows = db.prepare('SELECT * FROM ${schema.tableName} LIMIT 5').all();
-          console.log(JSON.stringify(rows));
-        `;
-        
-        fs.writeFileSync(tempPath, script);
-        const output = execSync(`node "${tempPath}"`, { encoding: 'utf-8', cwd: process.cwd() });
-        fs.unlinkSync(tempPath);
-        
-        rawSample = JSON.parse(output.trim());
-        console.log(`Successfully pulled ${rawSample.length} raw rows from ${schema.tableName} via Node child_process`);
+        const Database = require('better-sqlite3');
+        const db = new Database(pathOrUrl, { readonly: true });
+        rawSample = db.prepare(`SELECT * FROM ${schema.tableName} LIMIT 5`).all();
+        console.log(`Successfully pulled ${rawSample.length} raw rows from ${schema.tableName} natively`);
       } catch (dbError: any) {
-        console.error("Failed to fetch raw sample from SQLite database via child process:", dbError.stderr ? dbError.stderr.toString() : dbError);
+        console.error("Failed to fetch raw sample from SQLite database:", dbError.message);
       }
     }
 
