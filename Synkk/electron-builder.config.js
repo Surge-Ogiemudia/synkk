@@ -20,7 +20,7 @@ const config = {
         arch: ["x64"]
       }
     ],
-    icon: "public/icon.ico"
+    icon: "public/icon.png"
   },
   nsis: {
     oneClick: true,
