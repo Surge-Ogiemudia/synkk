@@ -63,7 +63,7 @@ export default function Done() {
         onClick={() => {
           // @ts-ignore
           const { shell } = window.require('electron');
-          shell.openExternal('https://pharmastackx.com/login');
+          shell.openExternal('https://psx.ng/auth');
         }}
         className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg"
       >
