@@ -140,6 +140,31 @@ export default function Welcome() {
     }
   };
 
+  const handleGuestMode = async () => {
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'guest' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // @ts-ignore
+        const { ipcRenderer } = window.require('electron');
+        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: 'Guest Pharmacy', coordinates: null });
+        setAuthState('authenticated');
+      } else {
+        setAuthError(data.error || 'Guest mode failed.');
+      }
+    } catch (err) {
+      setAuthError('Network error. Please try again.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
@@ -201,6 +226,14 @@ export default function Welcome() {
                 </div>
                 <button type="submit" disabled={authLoading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors mt-2 disabled:opacity-50">
                   {authLoading ? 'Checking...' : 'Continue'} <ArrowRight className="w-4 h-4" />
+                </button>
+                <div className="relative flex items-center py-2">
+                  <div className="flex-grow border-t border-slate-700"></div>
+                  <span className="flex-shrink-0 mx-4 text-slate-500 text-xs uppercase tracking-wider">Or</span>
+                  <div className="flex-grow border-t border-slate-700"></div>
+                </div>
+                <button type="button" onClick={handleGuestMode} disabled={authLoading} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors border border-slate-700 disabled:opacity-50">
+                  {authLoading ? 'Creating Guest...' : 'Continue as Guest'}
                 </button>
               </form>
             )}
