@@ -4,12 +4,25 @@ import { Store, Globe, ArrowRight, MapPin, Check, ChevronLeft } from 'lucide-rea
 
 export default function StorefrontSetup() {
   const navigate = useNavigate();
-  // @ts-ignore
-  const { getStore } = window.require('../store/local');
-  const savedStorefront = getStore('storefront') || { slug: 'my-pharmacy', name: 'My Pharmacy' };
+  const [name, setName] = useState('My Pharmacy');
+  const [slug, setSlug] = useState('my-pharmacy');
 
-  const [name, setName] = useState(savedStorefront.name);
-  const [slug, setSlug] = useState(savedStorefront.slug);
+  React.useEffect(() => {
+    const fetchStorefront = async () => {
+      try {
+        // @ts-ignore
+        const { ipcRenderer } = window.require('electron');
+        const savedStorefront = await ipcRenderer.invoke('get-storefront-data');
+        if (savedStorefront) {
+          if (savedStorefront.name) setName(savedStorefront.name);
+          if (savedStorefront.slug) setSlug(savedStorefront.slug);
+        }
+      } catch (e) {
+        console.error("Failed to load storefront data", e);
+      }
+    };
+    fetchStorefront();
+  }, []);
   const [coordinates, setCoordinates] = useState<{lat: number, lng: number} | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
