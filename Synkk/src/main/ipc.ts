@@ -227,6 +227,10 @@ ${text.slice(0, 15000)}`;
     }
   });
 
+  ipcMain.handle('get-storefront-data', async (event) => {
+    return getStore('storefront');
+  });
+
   ipcMain.handle('request-support', async (event, payload: any) => {
     try {
       const { sendSupportEmail } = require('./mailer');

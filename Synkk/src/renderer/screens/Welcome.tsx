@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UploadCloud, Link as LinkIcon, Database, ArrowRight, HardDrive, Radio, Mail, Lock, User, Phone, Check } from 'lucide-react';
-import { getStore, setStore } from '../store/local'; // Assuming these exist, if not we'll use localStorage directly
 
 interface DiscoveredPOS {
   name: string;
@@ -29,13 +28,19 @@ export default function Welcome() {
   const [isRequestingSupport, setIsRequestingSupport] = useState(false);
 
   useEffect(() => {
-    // Check if we already have a saved session
-    // @ts-ignore
-    const { getStore } = window.require('../store/local');
-    const existingStorefront = getStore('storefront');
-    if (existingStorefront && existingStorefront.slug && existingStorefront.slug !== 'unknown-slug') {
-      setAuthState('authenticated');
-    }
+    const checkSession = async () => {
+      try {
+        // @ts-ignore
+        const { ipcRenderer } = window.require('electron');
+        const existingStorefront = await ipcRenderer.invoke('get-storefront-data');
+        if (existingStorefront && existingStorefront.slug && existingStorefront.slug !== 'unknown-slug') {
+          setAuthState('authenticated');
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    checkSession();
   }, []);
 
   useEffect(() => {
@@ -95,8 +100,8 @@ export default function Welcome() {
       const data = await res.json();
       if (data.success) {
         // @ts-ignore
-        const { setStore } = window.require('../store/local');
-        setStore('storefront', { slug: data.slug, name: 'My Pharmacy' }); // Actual name will be fetched later or overridden
+        const { ipcRenderer } = window.require('electron');
+        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: 'My Pharmacy', coordinates: null });
         setAuthState('authenticated');
       } else {
         setAuthError(data.error || 'Login failed.');
@@ -122,8 +127,8 @@ export default function Welcome() {
       const data = await res.json();
       if (data.success) {
         // @ts-ignore
-        const { setStore } = window.require('../store/local');
-        setStore('storefront', { slug: data.slug, name: pharmacyName });
+        const { ipcRenderer } = window.require('electron');
+        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: pharmacyName, coordinates: null });
         setAuthState('authenticated');
       } else {
         setAuthError(data.error || 'Registration failed.');
