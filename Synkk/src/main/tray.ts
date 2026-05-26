@@ -4,9 +4,12 @@ import * as path from 'path';
 let tray: Tray | null = null;
 let currentStatus: 'green' | 'amber' | 'red' = 'green';
 
+function getTrayIconPath(status: 'green' | 'amber' | 'red') {
+  return path.join(__dirname, `../../public/tray-icon-${status}.png`);
+}
+
 export function setupTray() {
-  const iconPath = path.join(__dirname, '../../public/tray-icon-green.png'); // Placeholder
-  const icon = nativeImage.createFromPath(iconPath);
+  const icon = nativeImage.createFromPath(getTrayIconPath('green'));
   tray = new Tray(icon);
 
   updateTrayMenu();
@@ -25,6 +28,11 @@ export function setupTray() {
 
 export function updateTrayStatus(status: 'green' | 'amber' | 'red', lastSyncTime: string, medicinesCount: number) {
   currentStatus = status;
+
+  if (tray) {
+    const icon = nativeImage.createFromPath(getTrayIconPath(status));
+    tray.setImage(icon);
+  }
 
   if (status === 'red') {
     new Notification({
