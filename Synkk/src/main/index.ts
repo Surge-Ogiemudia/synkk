@@ -20,7 +20,7 @@ function createWindow() {
       webviewTag: true,
     },
     frame: true, // we can customize this later
-    icon: path.join(__dirname, '../../public/icon.png'),
+    icon: path.join(__dirname, '../public/icon.png'),
   });
 
   // Load the React app

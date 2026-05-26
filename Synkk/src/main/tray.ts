@@ -5,7 +5,7 @@ let tray: Tray | null = null;
 let currentStatus: 'green' | 'amber' | 'red' = 'green';
 
 function getTrayIconPath(status: 'green' | 'amber' | 'red') {
-  return path.join(__dirname, `../../public/tray-icon-${status}.png`);
+  return path.join(__dirname, `../public/tray-icon-${status}.png`);
 }
 
 export function setupTray() {
