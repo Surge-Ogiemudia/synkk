@@ -4,8 +4,12 @@ import { Store, Globe, ArrowRight, MapPin, Check, ChevronLeft } from 'lucide-rea
 
 export default function StorefrontSetup() {
   const navigate = useNavigate();
-  const [name, setName] = useState('My Pharmacy');
-  const [slug, setSlug] = useState('my-pharmacy');
+  // @ts-ignore
+  const { getStore } = window.require('../store/local');
+  const savedStorefront = getStore('storefront') || { slug: 'my-pharmacy', name: 'My Pharmacy' };
+
+  const [name, setName] = useState(savedStorefront.name);
+  const [slug, setSlug] = useState(savedStorefront.slug);
   const [coordinates, setCoordinates] = useState<{lat: number, lng: number} | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
@@ -76,34 +80,17 @@ export default function StorefrontSetup() {
 
       <div className="space-y-6 mb-8">
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">What is your pharmacy name?</label>
-          <input 
-            type="text" 
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
-            }}
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 px-4 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-          />
+          <label className="block text-sm font-medium text-slate-300 mb-2">Pharmacy Name:</label>
+          <div className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl py-3 px-4 text-slate-400 cursor-not-allowed">
+            {name}
+          </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Choose your storefront link:</label>
-          <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-emerald-500/50">
-            <span className="pl-4 pr-2 py-3 bg-slate-900/50 text-slate-500 text-sm flex items-center">
-              <Globe className="w-4 h-4 mr-2" />
-              https://
-            </span>
-            <input 
-              type="text" 
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              className="flex-1 bg-transparent py-3 px-2 text-emerald-400 focus:outline-none text-left"
-            />
-            <span className="pr-4 py-3 bg-transparent text-slate-500 text-sm">
-              .psx.ng
-            </span>
+          <label className="block text-sm font-medium text-slate-300 mb-2">Storefront Link:</label>
+          <div className="flex items-center w-full bg-slate-900/50 border border-slate-700/50 rounded-xl py-3 px-4 text-slate-400">
+            <span className="text-emerald-500 mr-1">https://</span>
+            <span>{slug}.psx.ng</span>
           </div>
         </div>
 
