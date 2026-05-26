@@ -10,7 +10,8 @@ const config = {
   },
   files: [
     "dist/**/*",
-    "dist-main/**/*"
+    "dist-main/**/*",
+    "public/**/*"
   ],
   win: {
     target: [
