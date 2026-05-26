@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UploadCloud, Link as LinkIcon, Database, ArrowRight, HardDrive, Radio } from 'lucide-react';
+import { UploadCloud, Link as LinkIcon, Database, ArrowRight, HardDrive, Radio, Mail, Lock, User, Phone, Check } from 'lucide-react';
+import { getStore, setStore } from '../store/local'; // Assuming these exist, if not we'll use localStorage directly
 
 interface DiscoveredPOS {
   name: string;
@@ -10,6 +11,17 @@ interface DiscoveredPOS {
 
 export default function Welcome() {
   const navigate = useNavigate();
+  
+  // Auth State
+  const [authState, setAuthState] = useState<'email_check' | 'register' | 'login' | 'authenticated'>('email_check');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [pharmacyName, setPharmacyName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  // Scanner State
   const [url, setUrl] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [discoveredPOS, setDiscoveredPOS] = useState<DiscoveredPOS[]>([]);
@@ -17,7 +29,20 @@ export default function Welcome() {
   const [isRequestingSupport, setIsRequestingSupport] = useState(false);
 
   useEffect(() => {
+    // Check if we already have a saved session
+    // @ts-ignore
+    const { getStore } = window.require('../store/local');
+    const existingStorefront = getStore('storefront');
+    if (existingStorefront && existingStorefront.slug && existingStorefront.slug !== 'unknown-slug') {
+      setAuthState('authenticated');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authState !== 'authenticated') return;
+
     const scan = async () => {
+      setIsScanning(true);
       try {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
@@ -30,22 +55,92 @@ export default function Welcome() {
       }
     };
     scan();
-  }, []);
+  }, [authState]);
+
+  const handleCheckEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'check', email })
+      });
+      const data = await res.json();
+      if (data.exists) {
+        setAuthState('login');
+      } else {
+        setAuthState('register');
+      }
+    } catch (err) {
+      setAuthError('Network error. Please try again.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password) return;
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', email, password })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // @ts-ignore
+        const { setStore } = window.require('../store/local');
+        setStore('storefront', { slug: data.slug, name: 'My Pharmacy' }); // Actual name will be fetched later or overridden
+        setAuthState('authenticated');
+      } else {
+        setAuthError(data.error || 'Login failed.');
+      }
+    } catch (err) {
+      setAuthError('Network error. Please try again.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password || !pharmacyName || !phone) return;
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'register', email, password, pharmacyName, phone })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // @ts-ignore
+        const { setStore } = window.require('../store/local');
+        setStore('storefront', { slug: data.slug, name: pharmacyName });
+        setAuthState('authenticated');
+      } else {
+        setAuthError(data.error || 'Registration failed.');
+      }
+    } catch (err) {
+      setAuthError('Network error. Please try again.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0] as any;
-      let filePath = file.path;
-      
-      if (!filePath) {
-         // Some .lnk shortcuts don't expose their full path in the browser drop event.
-         // That's fine! Our backend will use just the file name to do a smart system-wide search.
-         filePath = file.name;
-      }
-      
+      let filePath = file.path || file.name;
       navigate('/analysis', { state: { method: 'drop', filePath } });
     } else {
       alert("No valid files were detected in that drop.");
@@ -62,6 +157,118 @@ export default function Welcome() {
       navigate('/web-scraper', { state: { url: finalUrl } });
     }
   };
+
+  if (authState !== 'authenticated') {
+    return (
+      <div className="flex flex-col items-center justify-center w-full min-h-[90vh] animate-in fade-in zoom-in duration-500 px-4">
+        <div className="mb-8 text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 mb-6 shadow-[0_0_40px_rgba(16,185,129,0.3)]">
+            <Database className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-4xl font-extrabold mb-3 tracking-tight text-white">
+            Connect to <span className="gradient-text">PharmaStackX</span>
+          </h1>
+          <p className="text-slate-400 font-light max-w-sm mx-auto">
+            Let's secure your connection before we sync your inventory.
+          </p>
+        </div>
+
+        <div className="w-full max-w-md glass-panel p-8 rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-50"></div>
+          
+          <div className="relative z-10">
+            {authError && (
+              <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-3 rounded-xl mb-6 text-sm">
+                {authError}
+              </div>
+            )}
+
+            {authState === 'email_check' && (
+              <form onSubmit={handleCheckEmail} className="flex flex-col gap-4 animate-in slide-in-from-bottom-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Email Address</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                    <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                      placeholder="pharmacy@example.com" />
+                  </div>
+                </div>
+                <button type="submit" disabled={authLoading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors mt-2 disabled:opacity-50">
+                  {authLoading ? 'Checking...' : 'Continue'} <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
+            )}
+
+            {authState === 'login' && (
+              <form onSubmit={handleLogin} className="flex flex-col gap-4 animate-in slide-in-from-right-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-slate-300">Welcome back!</span>
+                  <button type="button" onClick={() => setAuthState('email_check')} className="text-xs text-emerald-400 hover:underline">Change Email</button>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                    <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                      placeholder="••••••••" />
+                  </div>
+                </div>
+                <button type="submit" disabled={authLoading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors mt-2 disabled:opacity-50">
+                  {authLoading ? 'Logging in...' : 'Log In & Connect'} <Check className="w-4 h-4" />
+                </button>
+              </form>
+            )}
+
+            {authState === 'register' && (
+              <form onSubmit={handleRegister} className="flex flex-col gap-4 animate-in slide-in-from-right-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-slate-300">Create your account</span>
+                  <button type="button" onClick={() => setAuthState('email_check')} className="text-xs text-emerald-400 hover:underline">Change Email</button>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Pharmacy Name</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                    <input type="text" required value={pharmacyName} onChange={(e) => setPharmacyName(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                      placeholder="e.g. HealthPlus Pharmacy" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Phone Number</label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                    <input type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                      placeholder="+234..." />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Create Password</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                    <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                      placeholder="••••••••" />
+                  </div>
+                </div>
+
+                <button type="submit" disabled={authLoading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors mt-2 disabled:opacity-50">
+                  {authLoading ? 'Creating account...' : 'Create Account & Connect'} <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
+            )}
+
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center w-full animate-in fade-in zoom-in duration-500 pb-10 pt-10 px-4">

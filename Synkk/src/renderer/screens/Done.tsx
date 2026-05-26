@@ -59,8 +59,15 @@ export default function Done() {
         <p className="text-slate-500 font-mono text-xs mt-1 tracking-wide">{slug}.pharmastackx.com</p>
       </div>
 
-      <button className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg">
-        Open my storefront
+      <button 
+        onClick={() => {
+          // @ts-ignore
+          const { shell } = window.require('electron');
+          shell.openExternal('https://pharmastackx.com/login');
+        }}
+        className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg"
+      >
+        Open Web Dashboard
         <ExternalLink className="w-5 h-5" />
       </button>
       
