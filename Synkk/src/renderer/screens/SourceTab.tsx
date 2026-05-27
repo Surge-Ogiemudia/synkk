@@ -14,7 +14,7 @@ export default function SourceTab({ slug }: { slug: string }) {
     setLoading(true);
     setHasSearched(true);
     try {
-      const res = await fetch(`https://pharmastackx.com/api/source?query=${encodeURIComponent(query)}`);
+      const res = await fetch(`https://pharmastackx.com/api/source?query=${encodeURIComponent(query)}&exclude=${encodeURIComponent(slug)}`);
       const data = await res.json();
       
       // Filter out their own pharmacy from the results (they can't source from themselves)
