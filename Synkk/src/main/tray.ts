@@ -74,7 +74,7 @@ function updateTrayMenu(lastSyncTime: string = 'Never', medicinesCount: number =
         const { getStore } = require('../store/local');
         const storeFront = getStore('storefront');
         const isGuest = storeFront?.isGuest !== false && (storeFront?.isGuest === true || storeFront?.slug?.startsWith('guest-'));
-        const baseUrl = !app.isPackaged ? 'http://localhost:3000' : 'https://psx.ng';
+        const baseUrl = !app.isPackaged ? 'http://localhost:3000' : 'https://www.psx.ng';
         if (storeFront?.slug) {
           shell.openExternal(isGuest ? `${baseUrl}/auth?claim_slug=${storeFront.slug}` : `${baseUrl}/auth`);
         } else {
