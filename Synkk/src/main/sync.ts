@@ -134,10 +134,41 @@ export async function executeSync() {
 }
 
 async function extractFromLocalDB(dbPath: string, schema: any): Promise<any[]> {
-  const Database = require('better-sqlite3');
+  const fs = require('fs');
+  const path = require('path');
+  const ext = path.extname(dbPath).toLowerCase();
+
   try {
+    if (ext === '.json') {
+      const content = fs.readFileSync(dbPath, 'utf8');
+      const data = JSON.parse(content);
+      const arr = Array.isArray(data) ? data : [data];
+      return arr.map(item => ({
+        name: item[schema.nameCol],
+        qty: item[schema.qtyCol],
+        price: item[schema.priceCol]
+      }));
+    } else if (ext === '.csv') {
+      const content = fs.readFileSync(dbPath, 'utf8');
+      const lines = content.split('\n').filter(l => l.trim().length > 0);
+      if (lines.length === 0) return [];
+      const headers = lines[0].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+      const nameIdx = headers.indexOf(schema.nameCol);
+      const qtyIdx = headers.indexOf(schema.qtyCol);
+      const priceIdx = headers.indexOf(schema.priceCol);
+      
+      return lines.slice(1).map(line => {
+        const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+        return {
+          name: vals[nameIdx],
+          qty: vals[qtyIdx],
+          price: vals[priceIdx]
+        };
+      });
+    }
+
+    const Database = require('better-sqlite3');
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
-    // Use the mapped columns dynamically
     const query = `SELECT "${schema.nameCol}" as name, "${schema.qtyCol}" as qty, "${schema.priceCol}" as price FROM "${schema.tableName}"`;
     const rows = db.prepare(query).all();
     db.close();
