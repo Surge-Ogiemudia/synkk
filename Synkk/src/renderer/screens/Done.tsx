@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { QrCode, CheckCircle2, ExternalLink, Activity, Package } from 'lucide-react';
+import { QrCode, CheckCircle2, ExternalLink, Activity, Package, Search } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import OrdersTab from './OrdersTab';
+import SourceTab from './SourceTab';
 
 export default function Done() {
   const location = useLocation();
@@ -12,7 +13,7 @@ export default function Done() {
   
   const [syncFreq, setSyncFreq] = React.useState('15m');
   const [lastSync, setLastSync] = React.useState<string | null>(null);
-  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'orders'>('dashboard');
+  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'orders' | 'source'>('dashboard');
 
   useEffect(() => {
     // Save storefront data to backend
@@ -102,6 +103,12 @@ export default function Done() {
         >
           <Package className="w-4 h-4" /> Orders
         </button>
+        <button 
+          onClick={() => setActiveTab('source')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'source' ? 'bg-emerald-600/20 text-emerald-400 shadow-sm border border-emerald-500/20' : 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/5'}`}
+        >
+          <Search className="w-4 h-4" /> Source
+        </button>
       </div>
 
       {activeTab === 'dashboard' ? (
@@ -168,8 +175,10 @@ export default function Done() {
             Force Manual Sync Now
           </button>
         </>
-      ) : (
+      ) : activeTab === 'orders' ? (
         <OrdersTab slug={slug} />
+      ) : (
+        <SourceTab slug={slug} />
       )}
     </div>
   );
