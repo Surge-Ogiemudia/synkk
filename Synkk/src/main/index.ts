@@ -87,6 +87,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  app.setAppUserModelId('Synkk');
   if (app.isPackaged) {
     app.setLoginItemSettings({
       openAtLogin: true,
