@@ -4,6 +4,7 @@ import Welcome from './renderer/screens/Welcome';
 import Analysis from './renderer/screens/Analysis';
 import Confirmation from './renderer/screens/Confirmation';
 import StorefrontSetup from './renderer/screens/StorefrontSetup';
+import GuestAuth from './renderer/screens/GuestAuth';
 import Done from './renderer/screens/Done';
 import ManualOverride from './renderer/screens/ManualOverride';
 import WebScraper from './renderer/screens/WebScraper';
@@ -48,6 +49,7 @@ function App() {
             <Route path="/confirmation" element={<Confirmation />} />
             <Route path="/override" element={<ManualOverride />} />
             <Route path="/setup" element={<StorefrontSetup />} />
+            <Route path="/guest-auth" element={<GuestAuth />} />
             <Route path="/done" element={<Done />} />
           </Routes>
         </div>
