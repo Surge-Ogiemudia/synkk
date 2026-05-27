@@ -59,11 +59,13 @@ export default function Done() {
         <p className="text-slate-500 font-mono text-xs mt-1 tracking-wide">{slug}.pharmastackx.com</p>
       </div>
 
-      <button 
+      <button
         onClick={() => {
           // @ts-ignore
           const { shell } = window.require('electron');
-          shell.openExternal('https://psx.ng/auth');
+          const baseUrl = import.meta.env.DEV ? 'http://localhost:3000' : 'https://psx.ng';
+          const authUrl = slug.startsWith('guest-') ? `${baseUrl}/auth?claim_slug=${slug}` : `${baseUrl}/auth`;
+          shell.openExternal(authUrl);
         }}
         className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg"
       >
