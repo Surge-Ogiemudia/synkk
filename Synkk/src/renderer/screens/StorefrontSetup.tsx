@@ -6,6 +6,10 @@ export default function StorefrontSetup() {
   const navigate = useNavigate();
   const [name, setName] = useState('My Pharmacy');
   const [slug, setSlug] = useState('my-pharmacy');
+  const [slugEdited, setSlugEdited] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [setupError, setSetupError] = useState('');
+  const [originalSlug, setOriginalSlug] = useState('');
 
   React.useEffect(() => {
     const fetchStorefront = async () => {
@@ -15,7 +19,10 @@ export default function StorefrontSetup() {
         const savedStorefront = await ipcRenderer.invoke('get-storefront-data');
         if (savedStorefront) {
           if (savedStorefront.name) setName(savedStorefront.name);
-          if (savedStorefront.slug) setSlug(savedStorefront.slug);
+          if (savedStorefront.slug) {
+             setSlug(savedStorefront.slug);
+             setOriginalSlug(savedStorefront.slug);
+          }
         }
       } catch (e) {
         console.error("Failed to load storefront data", e);
@@ -94,17 +101,37 @@ export default function StorefrontSetup() {
       <div className="space-y-6 mb-8">
         <div>
           <label className="block text-sm font-medium text-slate-300 mb-2">Pharmacy Name:</label>
-          <div className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl py-3 px-4 text-slate-400 cursor-not-allowed">
-            {name}
-          </div>
+          <input 
+            type="text"
+            value={name}
+            onChange={(e) => {
+              const newName = e.target.value;
+              setName(newName);
+              if (!slugEdited) {
+                setSlug(newName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''));
+              }
+            }}
+            className="w-full bg-slate-900/50 border border-slate-700 focus:border-emerald-500 rounded-xl py-3 px-4 text-white outline-none transition-colors"
+          />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-slate-300 mb-2">Storefront Link:</label>
-          <div className="flex items-center w-full bg-slate-900/50 border border-slate-700/50 rounded-xl py-3 px-4 text-slate-400">
+          <div className="flex items-center w-full bg-slate-900/50 border border-slate-700 focus-within:border-emerald-500 rounded-xl py-3 px-4 text-white transition-colors">
             <span className="text-emerald-500 mr-1">https://</span>
-            <span>{slug}.psx.ng</span>
+            <input 
+              type="text"
+              value={slug}
+              onChange={(e) => {
+                setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
+                setSlugEdited(true);
+                setSetupError('');
+              }}
+              className="bg-transparent border-none outline-none w-full text-white placeholder-slate-500"
+            />
+            <span className="text-slate-400 ml-1">.psx.ng</span>
           </div>
+          {setupError && <p className="text-red-400 text-xs mt-2">{setupError}</p>}
         </div>
 
         <div>
@@ -139,11 +166,42 @@ export default function StorefrontSetup() {
       </div>
 
       <button 
-        onClick={() => navigate('/done', { state: { slug, name, coordinates } })}
-        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors"
+        onClick={async () => {
+          if (!slug) {
+            setSetupError("Storefront link cannot be empty.");
+            return;
+          }
+          setIsSaving(true);
+          setSetupError('');
+          try {
+            if (originalSlug.startsWith('guest-')) {
+              const response = await fetch('https://pharmastackx.com/api/auth-desktop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'update-guest', oldSlug: originalSlug, newSlug: slug, pharmacyName: name })
+              });
+              const data = await response.json();
+              if (!data.success) {
+                setSetupError(data.error || 'Failed to update storefront settings.');
+                setIsSaving(false);
+                return;
+              }
+            }
+            // @ts-ignore
+            const { ipcRenderer } = window.require('electron');
+            await ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates });
+            navigate('/done', { state: { slug, name, coordinates } });
+          } catch (err) {
+            console.error(err);
+            setSetupError("Network error. Please try again.");
+            setIsSaving(false);
+          }
+        }}
+        disabled={isSaving}
+        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
       >
-        Confirm & Launch
-        <ArrowRight className="w-5 h-5" />
+        {isSaving ? "Saving..." : "Confirm & Launch"}
+        {!isSaving && <ArrowRight className="w-5 h-5" />}
       </button>
     </div>
   );
