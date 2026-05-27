@@ -218,12 +218,9 @@ ${text.slice(0, 15000)}`;
     }
   });
 
-  ipcMain.handle('save-storefront-data', async (event, data: { slug: string, name: string, coordinates: any }) => {
-    if (freq) {
-      store.set('syncFreq', freq);
-      return true;
-    }
-    return false;
+  ipcMain.handle('save-storefront-data', async (event, data: any) => {
+    setStore('storefront', data);
+    return true;
   });
   
   ipcMain.handle('update-order-status', async (_, orderId, status) => {
@@ -245,6 +242,10 @@ ${text.slice(0, 15000)}`;
 
   ipcMain.handle('get-storefront-data', async (event) => {
     return getStore('storefront');
+  });
+
+  ipcMain.handle('get-pairing-data', async (event) => {
+    return getStore('pairing');
   });
 
   ipcMain.handle('request-support', async (event, payload: any) => {

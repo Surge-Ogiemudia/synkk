@@ -34,7 +34,12 @@ export default function Welcome() {
         const { ipcRenderer } = window.require('electron');
         const existingStorefront = await ipcRenderer.invoke('get-storefront-data');
         if (existingStorefront && existingStorefront.slug && existingStorefront.slug !== 'unknown-slug') {
-          setAuthState('authenticated');
+          const pairing = await ipcRenderer.invoke('get-pairing-data');
+          if (pairing && pairing.posIdentifier) {
+            navigate('/done', { state: { slug: existingStorefront.slug, name: existingStorefront.name, coordinates: existingStorefront.coordinates } });
+          } else {
+            setAuthState('authenticated');
+          }
         }
       } catch (e) {
         console.error(e);
