@@ -101,7 +101,7 @@ export default function Welcome() {
       if (data.success) {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
-        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: 'My Pharmacy', coordinates: null, isGuest: false });
+        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: data.name || 'My Pharmacy', coordinates: null, isNewUser: false });
         setAuthState('authenticated');
       } else {
         setAuthError(data.error || 'Login failed.');
@@ -119,22 +119,21 @@ export default function Welcome() {
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'register', email, password, pharmacyName, phone })
+      // Local slug generation (will be verified upon final launch)
+      let baseSlug = pharmacyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+      
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      await ipcRenderer.invoke('save-storefront-data', { 
+        slug: baseSlug, 
+        name: pharmacyName, 
+        coordinates: null, 
+        isNewUser: true,
+        pendingRegistration: { email: email.toLowerCase(), password, phone }
       });
-      const data = await res.json();
-      if (data.success) {
-        // @ts-ignore
-        const { ipcRenderer } = window.require('electron');
-        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: pharmacyName, coordinates: null, isGuest: false });
-        setAuthState('authenticated');
-      } else {
-        setAuthError(data.error || 'Registration failed.');
-      }
+      setAuthState('authenticated');
     } catch (err) {
-      setAuthError('Network error. Please try again.');
+      setAuthError('An error occurred. Please try again.');
     } finally {
       setAuthLoading(false);
     }
@@ -144,22 +143,13 @@ export default function Welcome() {
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'guest' })
-      });
-      const data = await res.json();
-      if (data.success) {
-        // @ts-ignore
-        const { ipcRenderer } = window.require('electron');
-        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: 'Guest Pharmacy', coordinates: null, isGuest: true });
-        setAuthState('authenticated');
-      } else {
-        setAuthError(data.error || 'Guest mode failed.');
-      }
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      // No slug or name yet, just flag as guest
+      await ipcRenderer.invoke('save-storefront-data', { slug: '', name: '', coordinates: null, isGuest: true });
+      setAuthState('authenticated');
     } catch (err) {
-      setAuthError('Network error. Please try again.');
+      setAuthError('An error occurred. Please try again.');
     } finally {
       setAuthLoading(false);
     }

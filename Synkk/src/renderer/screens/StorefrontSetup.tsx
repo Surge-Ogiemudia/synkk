@@ -9,7 +9,8 @@ export default function StorefrontSetup() {
   const [slugEdited, setSlugEdited] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [setupError, setSetupError] = useState('');
-  const [originalSlug, setOriginalSlug] = useState('');
+  const [isNewUser, setIsNewUser] = useState(true);
+  const [pendingRegistration, setPendingRegistration] = useState<any>(null);
 
   React.useEffect(() => {
     const fetchStorefront = async () => {
@@ -21,7 +22,12 @@ export default function StorefrontSetup() {
           if (savedStorefront.name) setName(savedStorefront.name);
           if (savedStorefront.slug) {
              setSlug(savedStorefront.slug);
-             setOriginalSlug(savedStorefront.slug);
+          }
+          if (savedStorefront.isNewUser === false) {
+             setIsNewUser(false);
+          }
+          if (savedStorefront.pendingRegistration) {
+             setPendingRegistration(savedStorefront.pendingRegistration);
           }
         }
       } catch (e) {
@@ -104,6 +110,7 @@ export default function StorefrontSetup() {
           <input 
             type="text"
             value={name}
+            disabled={!isNewUser}
             onChange={(e) => {
               const newName = e.target.value;
               setName(newName);
@@ -111,7 +118,7 @@ export default function StorefrontSetup() {
                 setSlug(newName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''));
               }
             }}
-            className="w-full bg-slate-900/50 border border-slate-700 focus:border-emerald-500 rounded-xl py-3 px-4 text-white outline-none transition-colors"
+            className="w-full bg-slate-900/50 border border-slate-700 focus:border-emerald-500 rounded-xl py-3 px-4 text-white outline-none transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
           />
         </div>
 
@@ -122,12 +129,13 @@ export default function StorefrontSetup() {
             <input 
               type="text"
               value={slug}
+              disabled={!isNewUser}
               onChange={(e) => {
                 setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
                 setSlugEdited(true);
                 setSetupError('');
               }}
-              className="bg-transparent border-none outline-none w-full text-white placeholder-slate-500"
+              className="bg-transparent border-none outline-none w-full text-white placeholder-slate-500 disabled:opacity-70 disabled:cursor-not-allowed"
             />
             <span className="text-slate-400 ml-1">.psx.ng</span>
           </div>
@@ -174,24 +182,30 @@ export default function StorefrontSetup() {
           setIsSaving(true);
           setSetupError('');
           try {
-            if (originalSlug.startsWith('guest-')) {
+            if (isNewUser && pendingRegistration) {
               const response = await fetch('https://pharmastackx.com/api/auth-desktop', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'update-guest', oldSlug: originalSlug, newSlug: slug, pharmacyName: name })
+                body: JSON.stringify({ 
+                  action: 'register', 
+                  email: pendingRegistration.email, 
+                  password: pendingRegistration.password, 
+                  phone: pendingRegistration.phone,
+                  pharmacyName: name,
+                  slug: slug
+                })
               });
               const data = await response.json();
               if (!data.success) {
-                setSetupError(data.error || 'Failed to update storefront settings.');
+                setSetupError(data.error || 'Failed to create storefront.');
                 setIsSaving(false);
                 return;
               }
             }
+            
             // @ts-ignore
             const { ipcRenderer } = window.require('electron');
-            const savedStorefront = await ipcRenderer.invoke('get-storefront-data');
-            const isGuest = savedStorefront?.isGuest !== false && (savedStorefront?.isGuest === true || originalSlug.startsWith('guest-'));
-            await ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates, isGuest });
+            await ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates, isNewUser: false });
             navigate('/done', { state: { slug, name, coordinates } });
           } catch (err) {
             console.error(err);

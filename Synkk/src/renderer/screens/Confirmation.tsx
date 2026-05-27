@@ -64,7 +64,12 @@ export default function Confirmation() {
               posIdentifier: location.state?.pathOrUrl,
               schemaMapping: result.schemaMapping
             });
-            navigate('/setup');
+            const store = await ipcRenderer.invoke('get-storefront-data');
+            if (store?.isGuest) {
+              navigate('/guest-auth');
+            } else {
+              navigate('/setup');
+            }
           }}
           className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors"
         >
