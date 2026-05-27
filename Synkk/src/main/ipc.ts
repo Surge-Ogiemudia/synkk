@@ -240,6 +240,21 @@ ${text.slice(0, 15000)}`;
       return { success: false, error: error.message };
     }
   });
+
+  ipcMain.handle('get-sync-frequency', () => {
+    return getStore('syncFrequency') || '15m';
+  });
+
+  ipcMain.handle('set-sync-frequency', (event, freq: string) => {
+    setStore('syncFrequency', freq);
+    const { updateScheduler } = require('./scheduler');
+    updateScheduler();
+    return true;
+  });
+
+  ipcMain.handle('get-last-sync-time', () => {
+    return getStore('lastSyncTime') || null;
+  });
   ipcMain.handle('get-database-tables', async (event, pathOrUrl: string) => {
     try {
       const ext = path.extname(pathOrUrl).toLowerCase();
