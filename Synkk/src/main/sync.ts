@@ -79,6 +79,7 @@ export async function executeSync() {
     console.log(`Smart Diff: ${updates.length} updates, ${deletes.length} deletes.`);
 
     const axios = require('axios');
+    const storefrontData = getStore('storefront') || { slug: 'unknown', name: 'Unknown' };
     const payload = {
       pharmacy_slug: storefrontData.slug,
       pharmacy_name: storefrontData.name,
