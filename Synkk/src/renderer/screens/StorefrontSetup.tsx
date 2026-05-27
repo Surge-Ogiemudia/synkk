@@ -189,7 +189,9 @@ export default function StorefrontSetup() {
             }
             // @ts-ignore
             const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates });
+            const savedStorefront = await ipcRenderer.invoke('get-storefront-data');
+            const isGuest = savedStorefront?.isGuest !== false && (savedStorefront?.isGuest === true || originalSlug.startsWith('guest-'));
+            await ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates, isGuest });
             navigate('/done', { state: { slug, name, coordinates } });
           } catch (err) {
             console.error(err);

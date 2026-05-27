@@ -101,7 +101,7 @@ export default function Welcome() {
       if (data.success) {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
-        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: 'My Pharmacy', coordinates: null });
+        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: 'My Pharmacy', coordinates: null, isGuest: false });
         setAuthState('authenticated');
       } else {
         setAuthError(data.error || 'Login failed.');
@@ -128,7 +128,7 @@ export default function Welcome() {
       if (data.success) {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
-        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: pharmacyName, coordinates: null });
+        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: pharmacyName, coordinates: null, isGuest: false });
         setAuthState('authenticated');
       } else {
         setAuthError(data.error || 'Registration failed.');
@@ -153,7 +153,7 @@ export default function Welcome() {
       if (data.success) {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
-        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: 'Guest Pharmacy', coordinates: null });
+        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: 'Guest Pharmacy', coordinates: null, isGuest: true });
         setAuthState('authenticated');
       } else {
         setAuthError(data.error || 'Guest mode failed.');

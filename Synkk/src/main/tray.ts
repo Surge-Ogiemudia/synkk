@@ -66,15 +66,17 @@ function updateTrayMenu(lastSyncTime: string = 'Never', medicinesCount: number =
     } },
     { label: (() => {
         const { getStore } = require('../store/local');
-        const slug = getStore('storefront')?.slug;
-        return slug?.startsWith('guest-') ? 'Claim this Storefront' : 'Open Web Dashboard';
+        const storeFront = getStore('storefront');
+        const isGuest = storeFront?.isGuest !== false && (storeFront?.isGuest === true || storeFront?.slug?.startsWith('guest-'));
+        return isGuest ? 'Claim this Storefront' : 'Open Web Dashboard';
       })(), click: () => { 
         const { shell, app } = require('electron');
         const { getStore } = require('../store/local');
-        const slug = getStore('storefront')?.slug;
+        const storeFront = getStore('storefront');
+        const isGuest = storeFront?.isGuest !== false && (storeFront?.isGuest === true || storeFront?.slug?.startsWith('guest-'));
         const baseUrl = !app.isPackaged ? 'http://localhost:3000' : 'https://psx.ng';
-        if (slug) {
-          shell.openExternal(slug.startsWith('guest-') ? `${baseUrl}/auth?claim_slug=${slug}` : `${baseUrl}/auth`);
+        if (storeFront?.slug) {
+          shell.openExternal(isGuest ? `${baseUrl}/auth?claim_slug=${storeFront.slug}` : `${baseUrl}/auth`);
         } else {
           shell.openExternal(`${baseUrl}/auth`);
         }
