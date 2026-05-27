@@ -49,18 +49,42 @@ export async function executeSync() {
       rawInventory = await extractFromLocalDB(pairingData.posIdentifier, pairingData.schemaMapping);
     }
 
-    // 4. Push to PSX catalog API
-    console.log(`Pushing ${rawInventory.length} inventory items to cloud...`);
-    const storefrontData = getStore('storefront') || { slug: 'unknown-slug', name: 'Unknown Pharmacy', coordinates: null };
-    const syncBatchId = Date.now().toString();
+    const lastSyncSnapshot = getStore('lastSyncSnapshot') || [];
+    
+    // Smart Diffing Logic
+    const updates: any[] = [];
+    const deletes: string[] = [];
+    
+    // Convert current inventory to a map for fast lookup
+    const currentMap = new Map(rawInventory.map(item => [item.name, item]));
+    const lastMap = new Map((lastSyncSnapshot as any[]).map(item => [item.name, item]));
+
+    // Find new items or items with changed qty/price
+    for (const [name, currentItem] of currentMap.entries()) {
+      const lastItem = lastMap.get(name);
+      if (!lastItem) {
+        updates.push(currentItem);
+      } else if (lastItem.qty !== currentItem.qty || lastItem.price !== currentItem.price) {
+        updates.push(currentItem);
+      }
+    }
+
+    // Find deleted items (in last map, but not in current map)
+    for (const [name] of lastMap.entries()) {
+      if (!currentMap.has(name)) {
+        deletes.push(name);
+      }
+    }
+
+    console.log(`Smart Diff: ${updates.length} updates, ${deletes.length} deletes.`);
 
     const axios = require('axios');
     const payload = {
       pharmacy_slug: storefrontData.slug,
       pharmacy_name: storefrontData.name,
       coordinates: storefrontData.coordinates,
-      sync_batch_id: syncBatchId,
-      inventory: rawInventory
+      updates,
+      deletes
     };
 
     try {
@@ -80,13 +104,17 @@ export async function executeSync() {
         storefrontData.slug = response.data.newSlug;
         setStore('storefront', storefrontData);
       }
+      
+      // Update local snapshot cache on success
+      setStore('lastSyncSnapshot', rawInventory);
+      setStore('lastSyncTime', new Date().toISOString());
     } catch (pushError: any) {
       console.error('Failed to push to cloud API:', pushError.message);
       throw new Error(`Cloud Push Failed: ${pushError.message}`);
     }
     
     // 5. Update tray status
-    updateTrayStatus('green', new Date().toLocaleTimeString(), rawInventory.length);
+    updateTrayStatus('green', new Date().toLocaleTimeString(), updates.length + deletes.length);
     return { status: 'success' };
     
   } catch (error: any) {

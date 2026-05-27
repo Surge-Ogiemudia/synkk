@@ -8,6 +8,9 @@ export default function Done() {
   const slug = location.state?.slug || 'my-pharmacy';
   const name = location.state?.name || 'My Pharmacy';
   const coordinates = location.state?.coordinates || null;
+  
+  const [syncFreq, setSyncFreq] = React.useState('15m');
+  const [lastSync, setLastSync] = React.useState<string | null>(null);
 
   useEffect(() => {
     // Save storefront data to backend
@@ -42,21 +45,72 @@ export default function Done() {
         requestAnimationFrame(frame);
       }
     };
-    frame();
+    
+    // Only throw confetti if we just finished setup (came with state)
+    if (location.state?.slug) {
+      frame();
+    }
+
+    const loadSettings = async () => {
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      const freq = await ipcRenderer.invoke('get-sync-frequency');
+      const time = await ipcRenderer.invoke('get-last-sync-time');
+      if (freq) setSyncFreq(freq);
+      if (time) setLastSync(time);
+    };
+    loadSettings();
+    
+    // Refresh last sync time every minute
+    const interval = setInterval(loadSettings, 60000);
+    return () => clearInterval(interval);
   }, []);
 
-  return (
-    <div className="flex flex-col items-center justify-center text-center w-full max-w-md px-6">
-      <CheckCircle2 className="w-20 h-20 text-emerald-400 mb-6" />
-      <h2 className="text-3xl font-bold text-white mb-2">You're all set!</h2>
-      <p className="text-slate-400 mb-8">Your pharmacy is now live on PharmaStackX. We will silently sync your inventory in the background.</p>
+  const handleFreqChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setSyncFreq(val);
+    // @ts-ignore
+    const { ipcRenderer } = window.require('electron');
+    await ipcRenderer.invoke('set-sync-frequency', val);
+  };
 
-      <div className="w-full bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col items-center mb-8">
-        <div className="w-48 h-48 bg-white rounded-xl mb-4 flex items-center justify-center">
-          <QrCode className="w-32 h-32 text-slate-900" />
+  return (
+    <div className="flex flex-col items-center w-full max-w-md px-6 py-8">
+      <div className="flex items-center gap-3 mb-6">
+        <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+        <h2 className="text-2xl font-bold text-white">Dashboard</h2>
+      </div>
+
+      <div className="w-full bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col items-center mb-6">
+        <div className="w-40 h-40 bg-white rounded-xl mb-4 flex items-center justify-center p-2">
+          <QrCode className="w-full h-full text-slate-900" />
         </div>
-        <p className="text-emerald-400 font-mono text-sm tracking-wide">{slug}.psx.ng</p>
-        <p className="text-slate-500 font-mono text-xs mt-1 tracking-wide">{slug}.pharmastackx.com</p>
+        <p className="text-emerald-400 font-mono text-lg tracking-wide font-bold">{slug}.psx.ng</p>
+      </div>
+
+      <div className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 mb-6">
+        <h3 className="text-sm font-semibold text-slate-300 mb-4">Sync Settings</h3>
+        
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-sm text-slate-400">Sync Frequency</span>
+          <select 
+            value={syncFreq} 
+            onChange={handleFreqChange}
+            className="bg-slate-800 border border-slate-600 text-white text-sm rounded-lg px-3 py-1.5 outline-none focus:border-emerald-500"
+          >
+            <option value="15m">Every 15 mins</option>
+            <option value="1h">Hourly</option>
+            <option value="12h">Every 12 hours</option>
+            <option value="24h">Daily (Midnight)</option>
+          </select>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-slate-400">Last Synced</span>
+          <span className="text-sm text-slate-300 font-mono">
+            {lastSync ? new Date(lastSync).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Pending...'}
+          </span>
+        </div>
       </div>
 
       <button
@@ -67,13 +121,22 @@ export default function Done() {
           const authUrl = slug.startsWith('guest-') ? `${baseUrl}/auth?claim_slug=${slug}` : `${baseUrl}/auth`;
           shell.openExternal(authUrl);
         }}
-        className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg"
+        className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg mb-4"
       >
-        Open Web Dashboard
+        Open Web Storefront
         <ExternalLink className="w-5 h-5" />
       </button>
       
-      <p className="mt-6 text-xs text-slate-500">You can safely close this window. Synkk is running in your system tray.</p>
+      <button
+        onClick={() => {
+          // @ts-ignore
+          const { ipcRenderer } = window.require('electron');
+          ipcRenderer.invoke('trigger-sync');
+        }}
+        className="text-xs text-emerald-500 hover:text-emerald-400 font-medium underline"
+      >
+        Force Manual Sync Now
+      </button>
     </div>
   );
 }

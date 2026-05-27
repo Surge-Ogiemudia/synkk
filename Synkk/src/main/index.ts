@@ -78,12 +78,9 @@ app.whenReady().then(() => {
   setupUpdater();
   setupIpc();
 
-  // The missing 15-minute sync CRON JOB!
-  const { executeSync } = require('./sync');
-  setInterval(() => {
-    console.log("CRON: Running scheduled 15-minute background sync...");
-    executeSync().catch(console.error);
-  }, 15 * 60 * 1000);
+  // Start the dynamic sync scheduler
+  const { startScheduler } = require('./scheduler');
+  startScheduler();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
