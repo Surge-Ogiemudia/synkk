@@ -55,8 +55,6 @@ export default function Done() {
     }
 
     const loadSettings = async () => {
-      // @ts-ignore
-      const { ipcRenderer } = window.require('electron');
       const freq = await ipcRenderer.invoke('get-sync-frequency');
       const time = await ipcRenderer.invoke('get-last-sync-time');
       if (freq) setSyncFreq(freq);
@@ -68,8 +66,7 @@ export default function Done() {
     const interval = setInterval(loadSettings, 60000);
     
     // Listen for push notifications to open Orders tab
-    // @ts-ignore
-    const { ipcRenderer } = window.require('electron');
+    // Listen for push notifications to open Orders tab
     ipcRenderer.on('navigate-to-orders', () => setActiveTab('orders'));
 
     return () => {
