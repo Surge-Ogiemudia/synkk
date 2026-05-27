@@ -219,11 +219,27 @@ ${text.slice(0, 15000)}`;
   });
 
   ipcMain.handle('save-storefront-data', async (event, data: { slug: string, name: string, coordinates: any }) => {
+    if (freq) {
+      store.set('syncFreq', freq);
+      return true;
+    }
+    return false;
+  });
+  
+  ipcMain.handle('update-order-status', async (_, orderId, status) => {
     try {
-      setStore('storefront', data);
-      return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e.message };
+      const response = await fetch('https://pharmastackx.com/api/orders', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer dev-token' // TODO: implement real token if needed, or rely on session
+        },
+        body: JSON.stringify({ orderId, status })
+      });
+      return await response.json();
+    } catch (e) {
+      console.error(e);
+      return null;
     }
   });
 

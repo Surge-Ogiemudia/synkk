@@ -6,7 +6,11 @@ import * as path from 'path';
 import { setupTray } from './tray';
 import { setupUpdater } from './updater';
 import { setupIpc } from './ipc';
+import { startScheduler } from './scheduler';
+import { initializePusher, disconnectPusher } from './pusher';
+import Store from 'electron-store';
 
+const store = new Store();
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {
@@ -36,6 +40,24 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+    
+    const initialSlug = store.get('pharmacySlug');
+    if (initialSlug) {
+      console.log('Found saved pharmacy slug, starting Sync Scheduler and Pusher Listener...', initialSlug);
+      startScheduler(initialSlug as string);
+      initializePusher(initialSlug as string, mainWindow);
+    }
+  });
+
+  // Watch for slug updates from the renderer (when user registers/claims a storefront)
+  store.onDidChange('pharmacySlug', (newValue) => {
+    if (newValue) {
+      console.log('Pharmacy slug changed, restarting Sync Scheduler and Pusher...', newValue);
+      startScheduler(newValue as string);
+      initializePusher(newValue as string, mainWindow);
+    } else {
+      disconnectPusher();
+    }
   });
 
   // Block native hardware back/forward buttons (mouse side buttons)
