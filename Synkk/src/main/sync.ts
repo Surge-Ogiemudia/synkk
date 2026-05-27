@@ -66,7 +66,7 @@ export async function executeSync() {
     try {
       // In production, this would be an actual API endpoint with auth tokens
       // For the MVP, we are POSTing to a placeholder relay route
-      await axios.post('https://pharmastackx.com/api/sync', payload, {
+      const response = await axios.post('https://pharmastackx.com/api/sync', payload, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
@@ -74,6 +74,12 @@ export async function executeSync() {
         timeout: 10000
       });
       console.log('Successfully pushed to Supabase via Web Relay!');
+      
+      if (response.data && response.data.newSlug && response.data.newSlug !== storefrontData.slug) {
+        console.log(`Auto-upgrading guest slug from ${storefrontData.slug} to ${response.data.newSlug}`);
+        storefrontData.slug = response.data.newSlug;
+        setStore('storefront', storefrontData);
+      }
     } catch (pushError: any) {
       console.error('Failed to push to cloud API:', pushError.message);
       throw new Error(`Cloud Push Failed: ${pushError.message}`);
