@@ -26,7 +26,7 @@ export function setupTray() {
   });
 }
 
-export function updateTrayStatus(status: 'green' | 'amber' | 'red', lastSyncTime: string, medicinesCount: number) {
+export function updateTrayStatus(status: 'green' | 'amber' | 'red', lastSyncTime: string, medicinesCount: number, errorDetails?: string) {
   currentStatus = status;
 
   if (tray) {
@@ -36,8 +36,8 @@ export function updateTrayStatus(status: 'green' | 'amber' | 'red', lastSyncTime
 
   if (status === 'red') {
     new Notification({
-      title: 'Synkk needs your attention',
-      body: 'Your storefront may not be showing your latest stock.',
+      title: 'Synkk Sync Error',
+      body: errorDetails || 'Your storefront may not be showing your latest stock. Check your POS connection.',
     }).show();
   }
 

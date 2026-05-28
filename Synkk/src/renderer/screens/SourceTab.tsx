@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, MapPin, Phone, Box, AlertCircle } from 'lucide-react';
 
 export default function SourceTab({ slug }: { slug: string }) {
@@ -6,16 +6,43 @@ export default function SourceTab({ slug }: { slug: string }) {
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (query.trim().length < 3) return;
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (query.trim().length >= 2 && !hasSearched) {
+        try {
+          // @ts-ignore
+          const { ipcRenderer } = window.require('electron');
+          const data = await ipcRenderer.invoke('autocomplete-source', { query });
+          if (data.success) {
+            setSuggestions(data.suggestions);
+            setShowSuggestions(true);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        setShowSuggestions(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query, hasSearched]);
+
+  const handleSearch = async (e: React.FormEvent | string) => {
+    if (typeof e !== 'string') e.preventDefault();
+    const searchQuery = typeof e === 'string' ? e : query;
+    if (searchQuery.trim().length < 3) return;
     
+    setQuery(searchQuery);
+    setShowSuggestions(false);
     setLoading(true);
     setHasSearched(true);
     try {
-      const res = await fetch(`https://pharmastackx.com/api/source?query=${encodeURIComponent(query)}&exclude=${encodeURIComponent(slug)}`);
-      const data = await res.json();
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      const data = await ipcRenderer.invoke('search-source', { query: searchQuery, exclude: slug });
       
       // Filter out their own pharmacy from the results (they can't source from themselves)
       if (data.success) {
@@ -47,7 +74,14 @@ export default function SourceTab({ slug }: { slug: string }) {
           className="block w-full pl-10 pr-3 py-3 border border-slate-700 rounded-xl leading-5 bg-slate-900/50 text-slate-200 placeholder-slate-400 focus:outline-none focus:bg-slate-900 focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition-colors sm:text-sm"
           placeholder="Search for out-of-stock medicine..."
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setHasSearched(false);
+          }}
+          onFocus={() => {
+            if (suggestions.length > 0) setShowSuggestions(true);
+          }}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
         />
         <button 
           type="submit" 
@@ -56,6 +90,24 @@ export default function SourceTab({ slug }: { slug: string }) {
         >
           {loading ? 'Searching...' : 'Find'}
         </button>
+
+        {/* Autocomplete Dropdown */}
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="absolute z-10 w-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-lg overflow-hidden">
+            {suggestions.map((suggestion, idx) => (
+              <div 
+                key={idx}
+                className="px-4 py-3 hover:bg-slate-700 cursor-pointer text-sm text-slate-200 transition-colors flex items-center"
+                onClick={() => {
+                  handleSearch(suggestion);
+                }}
+              >
+                <Search className="w-4 h-4 mr-3 text-slate-500" />
+                {suggestion}
+              </div>
+            ))}
+          </div>
+        )}
       </form>
 
       {/* Results Area */}
@@ -72,10 +124,6 @@ export default function SourceTab({ slug }: { slug: string }) {
           <div className="flex flex-col items-center justify-center h-full text-amber-500/80 space-y-3">
             <AlertCircle className="w-12 h-12 opacity-50" />
             <p className="text-sm text-center px-4">No pharmacies found with this item currently in stock.</p>
-            {/* Future Feature: Broadcast Button */}
-            <button className="mt-4 px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded-lg text-sm transition-colors">
-              Broadcast Request to WhatsApp Group (Coming Soon)
-            </button>
           </div>
         )}
 
@@ -91,6 +139,11 @@ export default function SourceTab({ slug }: { slug: string }) {
               <span className="flex items-center gap-1 bg-slate-900/50 px-2 py-1 rounded-md text-emerald-500/90 font-medium">
                 <Box className="w-3 h-3" /> {item.qty} in stock
               </span>
+              {item.pharmacy.distanceText && (
+                <span className="flex items-center gap-1 bg-slate-900/50 px-2 py-1 rounded-md text-blue-400/90 font-medium">
+                  <MapPin className="w-3 h-3" /> {item.pharmacy.distanceText}
+                </span>
+              )}
             </div>
             
             <div className="bg-slate-900/50 rounded-lg p-3 mt-auto">
@@ -102,11 +155,11 @@ export default function SourceTab({ slug }: { slug: string }) {
               </div>
               
               <a 
-                href={`tel:+${item.pharmacy.phone}`}
+                href={`tel:+${item.pharmacy.phoneNumber}`}
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 mt-1"
               >
                 <Phone className="w-3.5 h-3.5" /> 
-                {item.pharmacy.phone ? `+${item.pharmacy.phone}` : 'Contact hidden'}
+                {item.pharmacy.phoneNumber ? `+${item.pharmacy.phoneNumber}` : 'Contact hidden'}
               </a>
             </div>
             

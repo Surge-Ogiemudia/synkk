@@ -4,9 +4,9 @@ import { Notification } from 'electron';
 let pusherClient: Pusher | null = null;
 let currentChannel: any = null;
 
-// TODO: User needs to provide the real key and cluster
-const PUSHER_KEY = 'YOUR_PUSHER_KEY';
-const PUSHER_CLUSTER = 'YOUR_PUSHER_CLUSTER';
+// Real Pusher keys
+const PUSHER_KEY = '097f7e40113bef06b815';
+const PUSHER_CLUSTER = 'eu';
 
 export function initializePusher(slug: string, mainWindow: any) {
   if (pusherClient) {
@@ -18,8 +18,20 @@ export function initializePusher(slug: string, mainWindow: any) {
     cluster: PUSHER_CLUSTER,
   });
 
+  pusherClient.connection.bind('state_change', (states: any) => {
+    console.log('[Pusher] Connection State changed from', states.previous, 'to', states.current);
+  });
+
+  pusherClient.connection.bind('error', (err: any) => {
+    console.error('[Pusher] Connection ERROR:', err);
+  });
+
   const channelName = `pharmacy-${slug}`;
   currentChannel = pusherClient.subscribe(channelName);
+
+  currentChannel.bind('pusher:subscription_succeeded', () => {
+    console.log(`[Pusher] Successfully connected and subscribed to ${channelName}!`);
+  });
 
   currentChannel.bind('new-order', (data: any) => {
     console.log('[Pusher] Received new order:', data);

@@ -14,7 +14,103 @@ export default function WebScraper() {
   useEffect(() => {
     if (!url) {
       navigate('/');
+      return;
     }
+
+    // Once the webview is ready, inject silent credential capture on every page load
+    const webview = webviewRef.current;
+    if (!webview) return;
+
+    const injectCredentialCapture = () => {
+      // This script silently monitors login forms inside the webview.
+      // When the user logs in naturally, it captures their credentials
+      // and stores them in sessionStorage for Synkk to pick up later.
+      const captureScript = `
+        (() => {
+          if (window.__synkkCapture) return; // Already injected
+          window.__synkkCapture = true;
+
+          function captureFromPage() {
+            const passInputs = document.querySelectorAll('input[type="password"]');
+            if (passInputs.length === 0) return;
+
+            passInputs.forEach(passInput => {
+              const form = passInput.closest('form');
+              const container = form || document;
+
+              // Listen for form submit
+              if (form) {
+                form.addEventListener('submit', () => {
+                  grabAndStore(container, passInput);
+                }, true);
+              }
+
+              // Listen for button clicks (some SPAs don't use form submit)
+              container.addEventListener('click', (e) => {
+                const btn = e.target.closest('button, input[type="submit"], a');
+                if (!btn) return;
+                const text = (btn.textContent || btn.value || '').toLowerCase();
+                if (text.includes('log in') || text.includes('login') || text.includes('sign in') || text.includes('submit') || text.includes('continue') || btn.type === 'submit') {
+                  setTimeout(() => grabAndStore(container, passInput), 50);
+                }
+              }, true);
+
+              // Listen for Enter key in password field
+              passInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                  setTimeout(() => grabAndStore(container, passInput), 50);
+                }
+              }, true);
+            });
+          }
+
+          function grabAndStore(container, passInput) {
+            const password = passInput.value;
+            if (!password) return;
+
+            let username = '';
+            const inputs = container.querySelectorAll('input');
+            for (const inp of inputs) {
+              if (inp === passInput) continue;
+              if (inp.type === 'hidden' || inp.type === 'checkbox' || inp.type === 'radio') continue;
+              if (inp.type === 'email' || inp.type === 'text' || inp.type === 'tel') {
+                if (inp.value && inp.value.trim()) {
+                  username = inp.value.trim();
+                  break;
+                }
+              }
+            }
+
+            if (username && password) {
+              try {
+                sessionStorage.setItem('__synkk_creds', JSON.stringify({ u: username, p: password }));
+              } catch(e) {}
+            }
+          }
+
+          captureFromPage();
+
+          // Re-run on DOM mutations (for SPAs that render login forms dynamically)
+          const observer = new MutationObserver(() => {
+            if (document.querySelector('input[type="password"]')) {
+              captureFromPage();
+            }
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
+        })()
+      `;
+
+      webview.executeJavaScript(captureScript).catch(() => {});
+    };
+
+    webview.addEventListener('did-finish-load', injectCredentialCapture);
+    // Also inject on navigation within SPAs
+    webview.addEventListener('did-navigate-in-page', injectCredentialCapture);
+
+    return () => {
+      webview.removeEventListener('did-finish-load', injectCredentialCapture);
+      webview.removeEventListener('did-navigate-in-page', injectCredentialCapture);
+    };
   }, [url, navigate]);
 
   const handleScan = async () => {
@@ -23,17 +119,99 @@ export default function WebScraper() {
     setErrorMsg('');
     
     try {
+      // ── Silently harvest any captured credentials before scanning ──
+      try {
+        const credsJson = await webviewRef.current.executeJavaScript(
+          `sessionStorage.getItem('__synkk_creds')`
+        );
+        if (credsJson) {
+          const creds = JSON.parse(credsJson);
+          if (creds.u && creds.p) {
+            // @ts-ignore
+            const { ipcRenderer } = window.require('electron');
+            await ipcRenderer.invoke('save-web-pos-credentials', {
+              username: creds.u,
+              password: creds.p
+            });
+            console.log('Silently stored Web POS credentials for auto-relogin.');
+          }
+          // Clean up
+          await webviewRef.current.executeJavaScript(
+            `sessionStorage.removeItem('__synkk_creds')`
+          );
+        }
+      } catch (credErr) {
+        // Non-critical — just skip silently
+        console.log('Credential capture skipped:', credErr);
+      }
+
+      // ── Attempt to expand pagination & auto-scroll ──
+      const expandAndScrollCode = `
+        (async () => {
+          // 1. Try to find and change "Rows per page" native selects
+          const selects = document.querySelectorAll('select');
+          for (const select of selects) {
+            const options = Array.from(select.options);
+            const hasLargeNumbers = options.some(o => parseInt(o.value) >= 50 || parseInt(o.text) >= 50 || o.text.toLowerCase().includes('all'));
+            const hasSmallNumbers = options.some(o => parseInt(o.value) === 10 || parseInt(o.value) === 20 || parseInt(o.text) === 10);
+            
+            if (hasLargeNumbers && hasSmallNumbers) {
+              let maxOpt = options[0];
+              let maxVal = -1;
+              for (const o of options) {
+                if (o.text.toLowerCase().includes('all')) {
+                  maxOpt = o;
+                  break;
+                }
+                const val = parseInt(o.value) || parseInt(o.text) || 0;
+                if (val > maxVal) {
+                  maxVal = val;
+                  maxOpt = o;
+                }
+              }
+              select.value = maxOpt.value;
+              select.dispatchEvent(new Event('change', { bubbles: true }));
+              await new Promise(r => setTimeout(r, 3000));
+            }
+          }
+
+          // 2. Auto-scroll to bottom for infinite scroll support
+          await new Promise((resolve) => {
+            let totalHeight = 0;
+            let distance = 600;
+            let maxScrolls = 15; // Max ~7.5 seconds of scrolling
+            let scrolls = 0;
+            
+            let timer = setInterval(() => {
+              let scrollHeight = document.documentElement.scrollHeight || document.body.scrollHeight;
+              window.scrollBy(0, distance);
+              totalHeight += distance;
+              scrolls++;
+
+              if (totalHeight >= scrollHeight || scrolls >= maxScrolls) {
+                clearInterval(timer);
+                resolve(null);
+              }
+            }, 500);
+          });
+        })();
+      `;
+      await webviewRef.current.executeJavaScript(expandAndScrollCode);
+      // Wait a moment for any final lazily-loaded text
+      await new Promise(r => setTimeout(r, 2000));
+
       // Execute JS inside the webview to extract all text content
       const code = `document.body.innerText || document.body.textContent`;
       const pageText = await webviewRef.current.executeJavaScript(code);
+      const actualUrl = webviewRef.current.getURL() || url;
       
       // Send the text to the main process for Semantic Parsing via Synkk
       // @ts-ignore
       const { ipcRenderer } = window.require('electron');
-      const response = await ipcRenderer.invoke('semantic-scrape', { text: pageText, url });
+      const response = await ipcRenderer.invoke('semantic-scrape', { text: pageText, url: actualUrl });
       
       if (response.success && response.result) {
-        navigate('/confirmation', { state: { result: response.result, pathOrUrl: url } });
+        navigate('/confirmation', { state: { result: response.result, pathOrUrl: actualUrl } });
       } else {
         setErrorMsg(response.error || 'Synkk could not identify inventory data on this page. Please make sure you are on the correct page.');
         setIsScanning(false);
@@ -115,7 +293,7 @@ export default function WebScraper() {
           ref={webviewRef}
           src={url}
           className="w-full h-full"
-          allowpopups="true"
+          allowpopups={true as any}
         />
         {isScanning && (
           <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-10">
