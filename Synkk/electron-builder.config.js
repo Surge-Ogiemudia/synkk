@@ -32,7 +32,7 @@ const config = {
   publish: {
     provider: "github",
     owner: "Surge-Ogiemudia",
-    repo: "synkk"
+    repo: "synkk-downloads"
   }
 };
 
