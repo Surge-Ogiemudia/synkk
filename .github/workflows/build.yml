@@ -33,3 +33,9 @@ jobs:
         with:
           name: Synkk-Windows-Installer
           path: ./Synkk/dist-electron/**/*.exe
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ./Synkk/dist-electron/**/*.exe

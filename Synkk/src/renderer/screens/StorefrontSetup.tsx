@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Store, Globe, ArrowRight, MapPin, Check, ChevronLeft } from 'lucide-react';
+import { Store, Globe, ArrowRight, MapPin, Check, ChevronLeft, X, AlertCircle } from 'lucide-react';
 
 export default function StorefrontSetup() {
   const navigate = useNavigate();
@@ -9,6 +9,8 @@ export default function StorefrontSetup() {
   const [slugEdited, setSlugEdited] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [setupError, setSetupError] = useState('');
+  const [dbSaveStatus, setDbSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [dbSaveErrorDetail, setDbSaveErrorDetail] = useState('');
   const [isNewUser, setIsNewUser] = useState(true);
   const [pendingRegistration, setPendingRegistration] = useState<any>(null);
 
@@ -145,12 +147,41 @@ export default function StorefrontSetup() {
         <div>
           <label className="block text-sm font-medium text-slate-300 mb-2">Store Coordinates:</label>
           {coordinates ? (
-            <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 rounded-xl py-3 px-4">
-              <div className="flex items-center text-emerald-400 text-sm font-mono">
-                <Check className="w-4 h-4 mr-2" />
+            <div className={`relative flex items-center w-full bg-slate-900/50 border rounded-xl py-3 px-4 transition-colors ${
+              dbSaveStatus === 'error' ? 'border-red-500/50' : 
+              dbSaveStatus === 'success' ? 'border-emerald-500/50' : 
+              'border-slate-700'
+            }`}>
+              <span className={`text-lg font-medium transition-colors ${dbSaveStatus === 'success' ? 'text-emerald-400' : 'text-emerald-500'}`}>
                 {coordinates.lat.toFixed(6)}, {coordinates.lng.toFixed(6)}
+              </span>
+              
+              <div className="absolute right-16 flex items-center group">
+                {dbSaveStatus === 'saving' && (
+                  <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                )}
+                {dbSaveStatus === 'success' && (
+                  <Check className="w-5 h-5 text-emerald-400" />
+                )}
+                {dbSaveStatus === 'error' && (
+                  <div className="relative flex items-center cursor-help">
+                    <X className="w-5 h-5 text-red-500" />
+                    <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-64 bg-slate-800 text-red-200 text-xs p-3 rounded-lg shadow-xl border border-red-500/30 z-10">
+                      <p className="font-semibold mb-1 text-red-400">Database Rejection:</p>
+                      <p className="font-mono break-words">{dbSaveErrorDetail}</p>
+                    </div>
+                  </div>
+                )}
               </div>
-              <button onClick={() => setCoordinates(null)} className="text-xs text-slate-400 hover:text-white">Clear</button>
+
+              {dbSaveStatus !== 'saving' && dbSaveStatus !== 'success' && (
+                <button 
+                  onClick={() => { setCoordinates(null); setDbSaveStatus('idle'); setDbSaveErrorDetail(''); }} 
+                  className="absolute right-4 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           ) : (
             <button 
@@ -179,11 +210,17 @@ export default function StorefrontSetup() {
             setSetupError("Storefront link cannot be empty.");
             return;
           }
+          if (!coordinates) {
+            setSetupError("Please click 'Sync Pharmacy Coordinates' to get your location first.");
+            return;
+          }
           setIsSaving(true);
           setSetupError('');
+          setDbSaveStatus('saving');
+          setDbSaveErrorDetail('');
           try {
             if (isNewUser && pendingRegistration) {
-              const response = await fetch('https://pharmastackx.com/api/auth-desktop', {
+              const response = await fetch('https://www.pharmastackx.com/api/auth-desktop', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -192,16 +229,23 @@ export default function StorefrontSetup() {
                   password: pendingRegistration.password, 
                   phone: pendingRegistration.phone,
                   pharmacyName: name,
-                  slug: slug
+                  slug: slug,
+                  coordinates: coordinates
                 })
               });
               const data = await response.json();
               if (!data.success) {
-                setSetupError(data.error || 'Failed to create storefront.');
+                setSetupError("Storefront configuration rejected. See coordinates for details.");
+                setDbSaveStatus('error');
+                setDbSaveErrorDetail(data.error || JSON.stringify(data));
                 setIsSaving(false);
                 return;
               }
             }
+            
+            setDbSaveStatus('success');
+            // Give the user a brief moment to see the success checkmark before navigating away
+            await new Promise(resolve => setTimeout(resolve, 800));
             
             // @ts-ignore
             const { ipcRenderer } = window.require('electron');

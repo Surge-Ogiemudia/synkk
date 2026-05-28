@@ -30,8 +30,9 @@ const config = {
     shortcutName: "Synkk"
   },
   publish: {
-    provider: "generic",
-    url: "https://updates.synkk.ai/download/" // Placeholder for auto-updates
+    provider: "github",
+    owner: "Surge-Ogiemudia",
+    repo: "synkk"
   }
 };
 

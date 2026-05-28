@@ -73,7 +73,7 @@ export default function Welcome() {
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
+      const res = await fetch('https://www.pharmastackx.com/api/auth-desktop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'check', email })
@@ -97,7 +97,7 @@ export default function Welcome() {
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
+      const res = await fetch('https://www.pharmastackx.com/api/auth-desktop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'login', email, password })
@@ -312,6 +312,11 @@ export default function Welcome() {
         <h1 className="text-6xl font-extrabold mb-4 tracking-tight">
           Welcome to <span className="gradient-text">Synkk</span>
         </h1>
+        {import.meta.env.DEV && (
+          <button onClick={() => navigate('/setup')} className="bg-red-500/20 border border-red-500 hover:bg-red-500/40 text-red-100 font-bold py-3 px-6 rounded-xl mb-4 transition-colors">
+            🚀 JUMP STRAIGHT TO SETUP (LOCAL DEV ONLY)
+          </button>
+        )}
         <p className="text-xl text-slate-400 font-light max-w-lg mx-auto">
           The silent catalog sync for modern pharmacies. No manual entry, no API configs. Just magic.
         </p>

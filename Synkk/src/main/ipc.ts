@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, safeStorage } from 'electron';
 import { analyzePOSSystem } from '../brain/analyser';
 import { executeSync } from './sync';
 import { getStore, setStore } from '../store/local';
@@ -118,6 +118,18 @@ export function setupIpc() {
     }
   });
 
+  ipcMain.on('bring-window-to-front', (event) => {
+    const webContents = event.sender;
+    const win = require('electron').BrowserWindow.fromWebContents(webContents);
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+      // Flash taskbar icon intensely (this guarantees attention on Windows!)
+      win.flashFrame(true);
+    }
+  });
+
   ipcMain.handle('open-file-dialog', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -225,7 +237,7 @@ ${text.slice(0, 15000)}`;
   
   ipcMain.handle('update-order-status', async (_, orderId, status) => {
     try {
-      const response = await fetch('https://pharmastackx.com/api/orders', {
+      const response = await fetch('https://www.pharmastackx.com/api/orders', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -246,6 +258,21 @@ ${text.slice(0, 15000)}`;
 
   ipcMain.handle('get-pairing-data', async (event) => {
     return getStore('pairing');
+  });
+
+  ipcMain.handle('update-csv-path', async (event) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'CSV Files', extensions: ['csv'] }]
+    });
+    if (canceled || filePaths.length === 0) {
+      return null;
+    }
+    const newPath = filePaths[0];
+    const currentPairing = getStore('pairing') || {};
+    currentPairing.posIdentifier = newPath;
+    setStore('pairing', currentPairing);
+    return newPath;
   });
 
   ipcMain.handle('request-support', async (event, payload: any) => {
@@ -341,5 +368,61 @@ ${text.slice(0, 15000)}`;
     } catch (error: any) {
       return { success: false, error: error.message };
     }
+  });
+
+  ipcMain.handle('search-source', async (_, { query, exclude }) => {
+    try {
+      const axios = require('axios');
+      const res = await axios.get(`https://www.pharmastackx.com/api/source?query=${encodeURIComponent(query)}&exclude=${encodeURIComponent(exclude)}`);
+      return res.data;
+    } catch (error: any) {
+      console.error('IPC search-source error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('autocomplete-source', async (_, { query }) => {
+    try {
+      const axios = require('axios');
+      const res = await axios.get(`https://www.pharmastackx.com/api/source/autocomplete?query=${encodeURIComponent(query)}`);
+      return res.data;
+    } catch (error: any) {
+      console.error('IPC autocomplete-source error:', error.message);
+      return { success: false, suggestions: [] };
+    }
+  });
+
+  // ── Secure Credential Storage (safeStorage) ─────────────────────────
+  ipcMain.handle('save-web-pos-credentials', async (event, { username, password }: { username: string; password: string }) => {
+    try {
+      if (!safeStorage.isEncryptionAvailable()) {
+        return { success: false, error: 'OS-level encryption is not available on this machine.' };
+      }
+      const encUser = safeStorage.encryptString(username).toString('base64');
+      const encPass = safeStorage.encryptString(password).toString('base64');
+      setStore('webPosCredentials', { encUser, encPass });
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('has-web-pos-credentials', async () => {
+    const creds = getStore('webPosCredentials') as any;
+    return !!(creds && creds.encUser && creds.encPass);
+  });
+
+  ipcMain.handle('delete-web-pos-credentials', async () => {
+    setStore('webPosCredentials', null);
+    return { success: true };
+  });
+
+  // ── Sync error retrieval for the dashboard ──────────────────────────
+  ipcMain.handle('get-last-sync-error', async () => {
+    return getStore('lastSyncError') || null;
+  });
+
+  ipcMain.handle('get-sync-retry-info', async () => {
+    return getStore('syncRetryInfo') || null;
   });
 }

@@ -20,7 +20,7 @@ export default function GuestAuth() {
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
+      const res = await fetch('https://www.pharmastackx.com/api/auth-desktop?t=' + Date.now(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'check', email })
@@ -31,8 +31,8 @@ export default function GuestAuth() {
       } else {
         setAuthState('register');
       }
-    } catch (err) {
-      setAuthError('Network error. Please try again.');
+    } catch (err: any) {
+      setAuthError(`Network error: ${err.message || 'Please try again'}`);
     } finally {
       setAuthLoading(false);
     }
@@ -44,7 +44,7 @@ export default function GuestAuth() {
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await fetch('https://pharmastackx.com/api/auth-desktop', {
+      const res = await fetch('https://www.pharmastackx.com/api/auth-desktop?t=' + Date.now(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'login', email, password })
@@ -58,8 +58,8 @@ export default function GuestAuth() {
       } else {
         setAuthError(data.error || 'Login failed.');
       }
-    } catch (err) {
-      setAuthError('Network error. Please try again.');
+    } catch (err: any) {
+      setAuthError(`Network error: ${err.message || 'Please try again'}`);
     } finally {
       setAuthLoading(false);
     }

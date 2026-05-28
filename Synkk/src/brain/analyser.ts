@@ -12,7 +12,7 @@ export async function analyzePOSSystem(pathOrUrl: string, sampleData: string) {
     });
   }
   if (!geminiClient) {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) {
       console.warn('WARNING: Gemini API key not found in environment');
     }
@@ -115,6 +115,21 @@ ${sampleData}`;
         console.log(`Successfully pulled ${rawSample.length} raw rows from ${schema.tableName} natively`);
       } catch (dbError: any) {
         console.error("Failed to fetch raw sample from SQLite database:", dbError.message);
+      }
+    } else if (ext.endsWith('.csv')) {
+      const lines = sampleData.split('\n').filter(l => l.trim().length > 0);
+      if (lines.length > 1) {
+        // Simple CSV parse to build JSON objects that match the schema mapping columns
+        const headers = lines[0].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+        rawSample = lines.slice(1, 6).map(line => {
+          const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+          const rowObj: any = {};
+          headers.forEach((header, i) => {
+            rowObj[header] = vals[i];
+          });
+          return rowObj;
+        });
+        console.log(`Successfully parsed ${rawSample.length} raw rows from CSV sample natively`);
       }
     }
 
