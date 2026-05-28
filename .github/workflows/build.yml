@@ -39,4 +39,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
+          repository: Surge-Ogiemudia/synkk-downloads
+          token: ${{ secrets.GH_PAT }}
           files: ./Synkk/dist-electron/**/*.exe
