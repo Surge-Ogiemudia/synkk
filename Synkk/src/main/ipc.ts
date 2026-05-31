@@ -146,58 +146,38 @@ export function setupIpc() {
 
   ipcMain.handle('semantic-scrape', async (event, { text, url }) => {
     try {
-      const { GoogleGenerativeAI } = require('@google/generative-ai');
-      const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || '';
-      if (!apiKey) throw new Error("Missing Gemini API Key.");
+      console.log('Sending semantic-scrape request to Vercel Backend...');
+      const response = await fetch('https://www.pharmastackx.com/api/synkk-ai/scrape-pos', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text, url })
+      });
 
-      const geminiClient = new GoogleGenerativeAI(apiKey);
-      const model = geminiClient.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(`Vercel Backend returned ${response.status}: ${err.error || response.statusText}`);
+      }
+
+      const parsedData = await response.json();
       
-      const prompt = `System Instruction: You are an expert data scraper. I am providing you the raw text extracted from a Pharmacy POS inventory webpage.
-Your job is to semantically parse this text and find the medication inventory data.
-Extract all medications, their quantities, and their prices.
-Return ONLY a valid JSON object matching this exact schema:
-{
-  "tableName": "ScrapedWebData",
-  "nameCol": "Name",
-  "qtyCol": "Quantity",
-  "priceCol": "Price",
-  "brandCol": null,
-  "imageCol": null,
-  "sample": [
-     { "Name": "Aspirin", "Quantity": 100, "Price": 5.99 }
-  ]
-}
-Do not return any markdown formatting. If no inventory data is found, return { "error": "No inventory data found on this page." }
-
-Page URL: ${url}
-Extracted Text:
-${text.slice(0, 15000)}`;
-
-      const response = await model.generateContent(prompt);
-      let aiResponse = response.response.text().trim();
-      
-      if (aiResponse.startsWith('\`\`\`json')) aiResponse = aiResponse.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
-      if (aiResponse.startsWith('\`\`\`')) aiResponse = aiResponse.replace(/\`\`\`/g, '').trim();
-
-      const parsed = JSON.parse(aiResponse);
-      
-      if (parsed.error) {
-        return { success: false, error: parsed.error };
+      if (parsedData.error) {
+        return { success: false, error: parsedData.error };
       }
       
       const finalResult = {
         status: 'analyzed',
-        schemaMapping: parsed,
-        rawSample: parsed.sample,
-        reasoning: "Semantically scraped from web POS by Synkk."
+        schemaMapping: parsedData.schema,
+        rawSample: parsedData.sample,
+        reasoning: "Semantically scraped from web POS by Vercel Backend."
       };
       
       return { success: true, result: finalResult };
       
     } catch (e: any) {
-      console.error("Scrape Error:", e);
-      return { success: false, error: e.message };
+      console.error('Semantic scrape failed via Vercel Backend:', e.message);
+      return { success: false, error: `AI Scrape Failed: ${e.message}` };
     }
   });
 
