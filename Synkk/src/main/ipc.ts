@@ -405,4 +405,20 @@ export function setupIpc() {
   ipcMain.handle('get-sync-retry-info', async () => {
     return getStore('syncRetryInfo') || null;
   });
+
+  // ── Leads Data ──────────────────────────
+  ipcMain.handle('get-leads', async () => {
+    return getStore('leads') || [];
+  });
+
+  ipcMain.handle('update-lead-status', async (event, id: string, status: string) => {
+    const leads = (getStore('leads') as any[]) || [];
+    const lead = leads.find(l => l.id === id);
+    if (lead) {
+      lead.status = status;
+      setStore('leads', leads);
+      return { success: true };
+    }
+    return { success: false, error: 'Lead not found locally' };
+  });
 }

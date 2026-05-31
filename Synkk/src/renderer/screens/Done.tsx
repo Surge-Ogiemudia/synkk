@@ -5,6 +5,7 @@ import confetti from 'canvas-confetti';
 import QRCode from 'react-qr-code';
 import Pusher from 'pusher-js';
 import OrdersTab from './OrdersTab';
+import LeadsTab from './LeadsTab';
 import SourceTab from './SourceTab';
 
 let globalPusher: Pusher | null = null;
@@ -18,7 +19,7 @@ export default function Done() {
   
   const [syncFreq, setSyncFreq] = React.useState('15m');
   const [lastSync, setLastSync] = React.useState<string | null>(null);
-  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'orders' | 'source'>('dashboard');
+  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'orders' | 'leads' | 'source'>('dashboard');
   const [syncError, setSyncError] = React.useState<{ code: string; userMessage: string; severity: string; timestamp?: string } | null>(null);
   const [isRetrying, setIsRetrying] = React.useState(false);
   const [isSyncing, setIsSyncing] = React.useState(false);
@@ -133,10 +134,12 @@ export default function Done() {
     
     // Listen for push notifications to open Orders tab
     ipcRenderer.on('navigate-to-orders', () => setActiveTab('orders'));
+    ipcRenderer.on('navigate-to-leads', () => setActiveTab('leads'));
 
     return () => {
       clearInterval(interval);
       ipcRenderer.removeAllListeners('navigate-to-orders');
+      ipcRenderer.removeAllListeners('navigate-to-leads');
       ipcRenderer.removeAllListeners('sync-error');
       ipcRenderer.removeAllListeners('sync-success');
     };
@@ -208,6 +211,15 @@ export default function Done() {
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
         >
           <Package className="w-4 h-4" /> Orders
+        </button>
+        <button 
+          onClick={() => setActiveTab('leads')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'leads' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+        >
+          <div className="relative">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            <div className="absolute -top-1 -right-2 w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+          </div> Leads
         </button>
         <button 
           onClick={() => setActiveTab('source')}
@@ -383,6 +395,8 @@ export default function Done() {
         </>
       ) : activeTab === 'orders' ? (
         <OrdersTab slug={slug} />
+      ) : activeTab === 'leads' ? (
+        <LeadsTab slug={slug} />
       ) : (
         <SourceTab slug={slug} />
       )}

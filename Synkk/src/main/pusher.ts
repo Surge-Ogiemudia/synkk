@@ -1,6 +1,6 @@
 import Pusher from 'pusher-js';
 import { Notification } from 'electron';
-import { getStore } from '../store/local';
+import { getStore, setStore } from '../store/local';
 
 let pusherClient: Pusher | null = null;
 let currentChannel: any = null;
@@ -76,40 +76,92 @@ export function initializePusher(slug: string, mainWindow: any) {
       return;
     }
 
+    // Save lead to local storage
+    const leads = (getStore('leads') as any[]) || [];
+    const newLead = {
+      id: data.platformRequestId || Date.now().toString(),
+      medicines: data.medicines || [],
+      location: data.location || 'Unknown',
+      patientPhone: data.patientPhone || '',
+      hasStock: !!data.hasStock,
+      timestamp: Date.now(),
+      status: 'pending' // pending | accepted | ignored
+    };
+    
+    // Check if we already have this lead to avoid duplicates
+    if (!leads.some(l => l.id === newLead.id)) {
+      leads.unshift(newLead);
+      setStore('leads', leads);
+      if (mainWindow) {
+        mainWindow.webContents.send('refresh-leads-list');
+      }
+    }
+
     const title = data.hasStock ? '🚨 Demand Alert (In Stock)!' : '🔔 Demand Alert (Out of Stock)';
     const bodyText = data.hasStock 
-      ? `A patient in ${data.location} wants your stocked item! Accept to notify them.`
+      ? `A patient in ${data.location} wants your stocked item! First to accept gets the lead.`
       : `A patient in ${data.location} is looking for ${data.medicines?.map((m:any) => m.name).join(', ')}.`;
 
     const notification = new Notification({
       title,
       body: bodyText,
       sound: 'Ping', // Windows native sound
-      actions: [{ type: 'button', text: 'Accept' }, { type: 'button', text: 'Reject' }]
+      actions: [{ type: 'button', text: 'Accept Lead' }, { type: 'button', text: 'Ignore' }]
+    });
+
+    notification.on('click', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('navigate-to-leads');
+      }
     });
 
     notification.on('action', async (event, index) => {
+      const currentLeads = (getStore('leads') as any[]) || [];
+      const leadIndex = currentLeads.findIndex(l => l.id === newLead.id);
+      
       if (index === 0) { // Accept clicked
-        console.log('[Pusher] User accepted the drug request.');
+        console.log('[Pusher] User accepted the drug request lead.');
+        
+        if (leadIndex !== -1) {
+          currentLeads[leadIndex].status = 'accepted';
+          setStore('leads', currentLeads);
+          if (mainWindow) mainWindow.webContents.send('refresh-leads-list');
+        }
+
         try {
           const storefront = getStore('storefront') as any;
-          const slug = storefront?.slug || slug; // Use current slug
+          const currentSlug = storefront?.slug || slug;
           
           await fetch('https://www.pharmastackx.com/api/synkk/requests/accept', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              pharmacySlug: slug,
-              platformRequestId: data.platformRequestId,
-              items: data.medicines || []
+              pharmacySlug: currentSlug,
+              platformRequestId: newLead.id,
+              items: newLead.medicines
             })
           });
           console.log('[Pusher] Accept response recorded in PharmastackX.');
         } catch (err) {
           console.error('[Pusher] Failed to send Accept response:', err);
         }
-      } else {
-        console.log('[Pusher] User rejected the drug request.');
+      } else { // Ignore clicked
+        console.log('[Pusher] User ignored the drug request lead.');
+        if (leadIndex !== -1) {
+          currentLeads[leadIndex].status = 'ignored';
+          setStore('leads', currentLeads);
+          if (mainWindow) mainWindow.webContents.send('refresh-leads-list');
+        }
+      }
+      
+      // If action was clicked, optionally open the window anyway
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.webContents.send('navigate-to-leads');
       }
     });
 
