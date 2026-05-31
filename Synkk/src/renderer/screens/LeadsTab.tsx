@@ -1,0 +1,178 @@
+import React, { useEffect, useState } from 'react';
+import { UserPlus, CheckCircle2, XCircle, Clock, MapPin, Phone } from 'lucide-react';
+
+export default function LeadsTab({ slug }: { slug: string }) {
+  const [leads, setLeads] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchLeads = async () => {
+    try {
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      const data = await ipcRenderer.invoke('get-leads');
+      setLeads(data || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLeads();
+
+    const handleRefresh = () => {
+      fetchLeads();
+    };
+
+    window.addEventListener('refresh-leads-list', handleRefresh);
+
+    return () => {
+      window.removeEventListener('refresh-leads-list', handleRefresh);
+    };
+  }, []);
+
+  const updateLeadStatus = async (leadId: string, status: string, items: any[]) => {
+    // Optimistic UI update
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status } : l));
+    
+    // @ts-ignore
+    const { ipcRenderer } = window.require('electron');
+    await ipcRenderer.invoke('update-lead-status', leadId, status);
+    
+    if (status === 'accepted') {
+      try {
+        await fetch('https://www.pharmastackx.com/api/synkk/requests/accept', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pharmacySlug: slug,
+            platformRequestId: leadId,
+            items: items || []
+          })
+        });
+      } catch (err) {
+        console.error('Failed to send Accept response:', err);
+      }
+    }
+  };
+
+  if (loading) {
+    return <div className="text-slate-400 py-10 text-center text-sm animate-pulse">Loading leads...</div>;
+  }
+
+  if (leads.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+        <UserPlus className="w-12 h-12 mb-4 opacity-50" />
+        <p>No WhatsApp leads yet.</p>
+        <p className="text-xs mt-2 text-slate-600">Waiting for live requests...</p>
+      </div>
+    );
+  }
+
+  const renderLead = (lead: any) => {
+    const isPending = lead.status === 'pending';
+    const isAccepted = lead.status === 'accepted';
+    
+    // Mask phone number if pending or ignored
+    let displayPhone = 'No phone number provided';
+    if (lead.patientPhone) {
+      if (isAccepted) {
+        displayPhone = lead.patientPhone;
+      } else {
+        const p = lead.patientPhone;
+        displayPhone = p.length > 6 ? `${p.substring(0, 4)}***${p.substring(p.length - 3)}` : '***';
+      }
+    }
+
+    return (
+      <div 
+        key={lead.id} 
+        className={`bg-slate-800/80 border border-slate-700 rounded-xl p-4 flex flex-col relative overflow-hidden mb-4 ${!isPending ? 'opacity-80' : ''}`}
+      >
+        <div className={`absolute top-0 left-0 w-1 h-full ${isAccepted ? 'bg-emerald-500' : lead.status === 'ignored' ? 'bg-slate-600' : 'bg-emerald-400 animate-pulse'}`} />
+        
+        <div className="flex justify-between items-start mb-3">
+          <div>
+            <h4 className="text-white font-semibold text-lg flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              WhatsApp Lead
+            </h4>
+            <div className="flex flex-col gap-1 mt-1">
+              <p className="text-slate-400 text-xs flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {new Date(lead.timestamp).toLocaleString()}
+              </p>
+              <p className="text-slate-400 text-xs flex items-center gap-1">
+                <MapPin className="w-3 h-3" />
+                {lead.location}
+              </p>
+            </div>
+          </div>
+          {lead.hasStock ? (
+             <span className="text-[10px] font-bold px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 uppercase tracking-wider">In Stock</span>
+          ) : (
+             <span className="text-[10px] font-bold px-2 py-1 rounded bg-amber-500/20 text-amber-400 uppercase tracking-wider">Out of Stock</span>
+          )}
+        </div>
+
+        <div className="bg-slate-900/50 rounded-lg p-3 mb-4">
+          <p className="text-xs text-slate-500 mb-2 uppercase tracking-wider font-semibold">Requested Items</p>
+          {lead.medicines?.map((item: any, idx: number) => (
+            <div key={idx} className="flex justify-between text-sm py-1 border-b border-slate-800/50 last:border-0">
+              <span className="text-slate-300">{item.name}</span>
+            </div>
+          ))}
+        </div>
+
+        {isPending ? (
+          <div className="mt-auto space-y-3">
+            <div className="flex items-center justify-center p-2 bg-slate-900/50 rounded border border-slate-700/50">
+              <Phone className="w-4 h-4 text-slate-500 mr-2" />
+              <span className="text-sm text-slate-400 tracking-widest">{displayPhone}</span>
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => updateLeadStatus(lead.id, 'ignored', lead.medicines)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
+              >
+                <XCircle className="w-4 h-4" /> Ignore
+              </button>
+              <button 
+                onClick={() => updateLeadStatus(lead.id, 'accepted', lead.medicines)}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20"
+              >
+                <CheckCircle2 className="w-4 h-4" /> Accept Lead
+              </button>
+            </div>
+          </div>
+        ) : isAccepted ? (
+          <div className="flex flex-col w-full bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-4 mt-auto">
+            <div className="flex items-center text-emerald-400 font-bold mb-3">
+              <CheckCircle2 className="w-5 h-5 mr-2" /> 
+              Lead Accepted!
+            </div>
+            <p className="text-sm text-emerald-100 mb-4 leading-relaxed">
+              Our sales team is connecting the two users. Here is the patient's phone number:
+            </p>
+            <div className="flex items-center justify-center p-3 bg-slate-900/80 rounded border border-emerald-500/30">
+              <Phone className="w-5 h-5 text-emerald-400 mr-3" />
+              <span className="text-lg text-white font-mono tracking-widest font-bold">{displayPhone}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col w-full bg-slate-800/50 rounded-lg p-3 mt-auto items-center justify-center">
+            <p className="text-xs text-slate-500 font-medium">Ignored</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex flex-col w-full space-y-4 pb-10">
+      {leads.map(renderLead)}
+    </div>
+  );
+}
