@@ -1,5 +1,6 @@
 import Pusher from 'pusher-js';
 import { Notification } from 'electron';
+import { getStore } from '../store/local';
 
 let pusherClient: Pusher | null = null;
 let currentChannel: any = null;
@@ -61,6 +62,58 @@ export function initializePusher(slug: string, mainWindow: any) {
     if (mainWindow) {
       mainWindow.webContents.send('refresh-orders-list');
     }
+  });
+
+  currentChannel.bind('synkk-drug-request', (data: any) => {
+    console.log('[Pusher] Received synkk-drug-request:', data);
+    
+    // Check out-of-stock preference
+    const settings = getStore('settings') as any;
+    const notifyOutOfStock = settings?.notifyOutOfStock !== false; // Default to true if undefined
+    
+    if (!data.hasStock && !notifyOutOfStock) {
+      console.log('[Pusher] Dropping out-of-stock drug request due to user preference.');
+      return;
+    }
+
+    const title = data.hasStock ? '🚨 Demand Alert (In Stock)!' : '🔔 Demand Alert (Out of Stock)';
+    const bodyText = data.hasStock 
+      ? `A patient in ${data.location} wants your stocked item! Accept to notify them.`
+      : `A patient in ${data.location} is looking for ${data.medicines?.map((m:any) => m.name).join(', ')}.`;
+
+    const notification = new Notification({
+      title,
+      body: bodyText,
+      sound: 'Ping', // Windows native sound
+      actions: [{ type: 'button', text: 'Accept' }, { type: 'button', text: 'Reject' }]
+    });
+
+    notification.on('action', async (event, index) => {
+      if (index === 0) { // Accept clicked
+        console.log('[Pusher] User accepted the drug request.');
+        try {
+          const storefront = getStore('storefront') as any;
+          const slug = storefront?.slug || slug; // Use current slug
+          
+          await fetch('https://www.pharmastackx.com/api/synkk/requests/accept', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              pharmacySlug: slug,
+              platformRequestId: data.platformRequestId,
+              items: data.medicines || []
+            })
+          });
+          console.log('[Pusher] Accept response recorded in PharmastackX.');
+        } catch (err) {
+          console.error('[Pusher] Failed to send Accept response:', err);
+        }
+      } else {
+        console.log('[Pusher] User rejected the drug request.');
+      }
+    });
+
+    notification.show();
   });
 
   console.log(`[Pusher] Subscribed to ${channelName} and listening for orders.`);
