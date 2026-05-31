@@ -22,6 +22,7 @@ export default function Done() {
   const [syncError, setSyncError] = React.useState<{ code: string; userMessage: string; severity: string; timestamp?: string } | null>(null);
   const [isRetrying, setIsRetrying] = React.useState(false);
   const [isSyncing, setIsSyncing] = React.useState(false);
+  const [notifyOutOfStock, setNotifyOutOfStock] = React.useState(true);
 
   useEffect(() => {
     // Save storefront data to backend
@@ -101,8 +102,13 @@ export default function Done() {
     const loadSettings = async () => {
       const freq = await ipcRenderer.invoke('get-sync-frequency');
       const time = await ipcRenderer.invoke('get-last-sync-time');
+      const settings = await ipcRenderer.invoke('get-settings');
+      
       if (freq) setSyncFreq(freq);
       if (time) setLastSync(time);
+      if (settings && settings.notifyOutOfStock !== undefined) {
+        setNotifyOutOfStock(settings.notifyOutOfStock);
+      }
       
       // Load persisted sync error (if any)
       const lastError = await ipcRenderer.invoke('get-last-sync-error');
@@ -142,6 +148,16 @@ export default function Done() {
     // @ts-ignore
     const { ipcRenderer } = window.require('electron');
     await ipcRenderer.invoke('set-sync-frequency', val);
+  };
+
+  const handleNotifyToggle = async () => {
+    const newVal = !notifyOutOfStock;
+    setNotifyOutOfStock(newVal);
+    // @ts-ignore
+    const { ipcRenderer } = window.require('electron');
+    const settings = await ipcRenderer.invoke('get-settings') || {};
+    settings.notifyOutOfStock = newVal;
+    await ipcRenderer.invoke('save-settings', settings);
   };
 
   const downloadQR = (e: React.MouseEvent) => {
@@ -303,6 +319,16 @@ export default function Done() {
                 <option value="12h">Every 12 hours</option>
                 <option value="24h">Daily (Midnight)</option>
               </select>
+            </div>
+
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm text-slate-400">Receive out-of-stock notifications</span>
+              <button 
+                onClick={handleNotifyToggle}
+                className={`w-10 h-5 rounded-full relative transition-colors ${notifyOutOfStock ? 'bg-emerald-500' : 'bg-slate-700'}`}
+              >
+                <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-all ${notifyOutOfStock ? 'left-5.5' : 'left-0.5'}`} style={{ left: notifyOutOfStock ? '20px' : '2px' }} />
+              </button>
             </div>
 
             <div className="flex items-center justify-between mb-4">
