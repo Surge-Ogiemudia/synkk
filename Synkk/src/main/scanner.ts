@@ -1,9 +1,6 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import dotenv from 'dotenv';
-dotenv.config();
 
 export interface DiscoveredPOS {
   name: string;
@@ -47,27 +44,23 @@ export async function scanForPOS(): Promise<DiscoveredPOS[]> {
   if (allFolders.length === 0) return [];
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
-    if (!apiKey) throw new Error("Missing Gemini API Key");
-
-    const geminiClient = new GoogleGenerativeAI(apiKey);
-    const model = geminiClient.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
-    const prompt = `System Instruction: You are an expert IT system scanner. I am going to give you a list of installed program folders on a user's Windows computer. 
-Your job is to identify which of these folders are highly likely to contain Point of Sale (POS), Pharmacy Management, or retail inventory software (for example: VirtualRx, Square, PioneerRx, Rx30, Liberty, etc. but could be ANY unknown POS).
-Return ONLY a valid JSON array of strings containing the exact folder names you identified. No markdown wrapping. If none match, return [].
-
-Folders:
-${JSON.stringify(allFolders)}`;
-
-    console.log("Asking AI to analyze", allFolders.length, "installed programs...");
-    const result = await model.generateContent(prompt);
-    let aiResponse = result.response.text().trim();
+    console.log("Asking Vercel AI Backend to analyze", allFolders.length, "installed programs...");
     
-    // Clean up markdown just in case
-    if (aiResponse.startsWith('```json')) aiResponse = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-    if (aiResponse.startsWith('```')) aiResponse = aiResponse.replace(/```/g, '').trim();
+    const response = await fetch('https://www.pharmastackx.com/api/synkk-ai/scan-pos', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ allFolders })
+    });
 
-    const identifiedFolders: string[] = JSON.parse(aiResponse);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(`Vercel Backend returned ${response.status}: ${err.error || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const identifiedFolders: string[] = data.identifiedFolders || [];
     console.log("AI discovered POS systems:", identifiedFolders);
 
     for (const folder of identifiedFolders) {

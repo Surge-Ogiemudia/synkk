@@ -578,28 +578,22 @@ async function extractFromWebPOS(url: string, schema: any): Promise<any[]> {
         const code = `document.body.innerText || document.body.textContent`;
         const pageText = await hiddenWindow.webContents.executeJavaScript(code);
         
-        // Pass to Semantic AI
-        const { GoogleGenerativeAI } = require('@google/generative-ai');
-        const geminiClient2 = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY);
-        const model = geminiClient2.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
-        
-        const prompt = `System Instruction: You are an expert data scraper working for Synkk. 
-You are extracting inventory from a Web POS.
-Here is the schema mapping we agreed on previously:
-${JSON.stringify(schema, null, 2)}
+        // Pass to Semantic AI Backend
+        console.log('Sending web extraction payload to Vercel AI Backend...');
+        const response = await fetch('https://www.pharmastackx.com/api/synkk-ai/extract-web-pos', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ pageText, schema })
+        });
 
-Here is the raw text from the live POS page:
-${pageText.slice(0, 15000)}
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(`Vercel Backend returned ${response.status}: ${err.error || response.statusText}`);
+        }
 
-Extract the medications and return ONLY a JSON array of objects with keys "name", "qty", and "price".
-Return NOTHING ELSE. NO markdown.`;
-
-        const response = await model.generateContent(prompt);
-        let aiResponse = response.response.text().trim();
-        if (aiResponse.startsWith('\`\`\`json')) aiResponse = aiResponse.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
-        if (aiResponse.startsWith('\`\`\`')) aiResponse = aiResponse.replace(/\`\`\`/g, '').trim();
-
-        const data = JSON.parse(aiResponse);
+        const data = await response.json();
         hiddenWindow.destroy();
         resolve(data);
       } catch (e: any) {
