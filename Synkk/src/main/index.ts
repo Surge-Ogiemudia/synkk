@@ -5,24 +5,27 @@ import { setupUpdater } from './updater';
 import { setupIpc } from './ipc';
 import { startScheduler } from './scheduler';
 import { initializePusher, disconnectPusher } from './pusher';
-import Store from 'electron-store';
+import { store } from '../store/local';
 
-const store = new Store();
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 700,
+    width: 1200,
+    height: 800,
     show: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
       webviewTag: true,
     },
-    frame: true, // we can customize this later
+    frame: true,
     icon: path.join(__dirname, '../public/icon.png'),
   });
+
+  // Force the window to be maximized
+  // Note: setResizable(false) breaks maximize() on Windows, so we remove it.
+  mainWindow.maximize();
 
   // Load the React app
   // In development, we use the Vite dev server
@@ -38,7 +41,8 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
     
-    const initialSlug = store.get('pharmacySlug');
+    const storefront = store.get('storefront') as any;
+    const initialSlug = storefront?.slug;
     if (initialSlug) {
       console.log('Found saved pharmacy slug, starting Sync Scheduler and Pusher Listener...', initialSlug);
       startScheduler(initialSlug as string);
@@ -47,11 +51,11 @@ function createWindow() {
   });
 
   // Watch for slug updates from the renderer (when user registers/claims a storefront)
-  store.onDidChange('pharmacySlug', (newValue) => {
-    if (newValue) {
-      console.log('Pharmacy slug changed, restarting Sync Scheduler and Pusher...', newValue);
-      startScheduler(newValue as string);
-      initializePusher(newValue as string, mainWindow);
+  store.onDidChange('storefront', (newValue: any) => {
+    if (newValue && newValue.slug) {
+      console.log('Pharmacy slug changed, restarting Sync Scheduler and Pusher...', newValue.slug);
+      startScheduler(newValue.slug as string);
+      initializePusher(newValue.slug as string, mainWindow);
     } else {
       disconnectPusher();
     }

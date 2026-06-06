@@ -23,3 +23,4 @@ export function setStore(key: string, value: any) {
 }
 
 // better-sqlite3 logic could also go here for more complex querying if needed
+export { store };

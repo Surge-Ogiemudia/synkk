@@ -1,9 +1,9 @@
 {
   "name": "synkk",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "PharmaStackX",
-  "description": "Synkk Desktop Automation Client",
+  "description": "PharmaStackX Auto-Sync Client",
   "main": "dist-main/index.js",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"tsup --watch --onSuccess \\\"electron .\\\"\"",
@@ -40,7 +40,10 @@
     "electron-updater": "^6.8.3",
     "lucide-react": "^1.16.0",
     "mongodb": "^7.2.0",
+    "mssql": "^12.5.5",
+    "mysql2": "^3.22.5",
     "nodemailer": "^8.0.8",
+    "pg": "^8.21.0",
     "pusher-js": "^8.5.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
