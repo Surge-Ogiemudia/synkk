@@ -130,6 +130,7 @@ export function setupIpc() {
              };
           }
         }
+      }
       const result = await analyzePOSSystem(pathOrUrl, sampleData);
       return { success: true, result, resolvedPath: pathOrUrl };
     } catch (error: any) {
