@@ -1,4 +1,4 @@
-import { ipcMain, dialog, safeStorage } from 'electron';
+import { ipcMain, dialog, safeStorage, BrowserWindow, app } from 'electron';
 import { analyzePOSSystem } from '../brain/analyser';
 import { executeSync } from './sync';
 import { getStore, setStore } from '../store/local';
@@ -97,9 +97,39 @@ export function setupIpc() {
         }
         
         if (!sampleData || sampleData.trim() === '') {
-          throw new Error(`Could not find a local .db or .sqlite database for ${path.basename(pathOrUrl)}. This application might be entirely cloud-based or stores its data elsewhere.`);
+          console.log(`No local database found. Initiating Terminal Auto-Discovery flow...`);
+          const { startTerminalDiscovery } = require('./network-scanner');
+          const terminalResult = await startTerminalDiscovery(path.dirname(pathOrUrl));
+
+          if (terminalResult.status === 'failed') {
+            throw new Error(terminalResult.message);
+          }
+
+          if (terminalResult.status === 'needs_password') {
+             return { 
+               success: false, 
+               needsPassword: true, 
+               message: terminalResult.message,
+               discoveryContext: terminalResult
+             };
+          }
+
+          if (terminalResult.status === 'connected') {
+             const { setStore } = require('../store/local');
+             setStore('remoteDbConnection', terminalResult);
+             
+             return { 
+                success: true, 
+                result: {
+                   status: 'analyzed',
+                   schemaMapping: { type: 'remote', engine: terminalResult.engine },
+                   rawSample: [],
+                   reasoning: `Connected to remote ${terminalResult.engine} database at ${terminalResult.ip}:${terminalResult.port}`
+                },
+                resolvedPath: `remote://${terminalResult.ip}:${terminalResult.port}` 
+             };
+          }
         }
-      }
       const result = await analyzePOSSystem(pathOrUrl, sampleData);
       return { success: true, result, resolvedPath: pathOrUrl };
     } catch (error: any) {
@@ -281,6 +311,34 @@ export function setupIpc() {
   });
   ipcMain.handle('get-database-tables', async (event, pathOrUrl: string) => {
     try {
+      if (pathOrUrl.startsWith('remote://')) {
+        const remoteConfig = getStore('remoteDbConnection') as any;
+        if (!remoteConfig) throw new Error("Remote config missing.");
+        const { engine, ip, port, credentials } = remoteConfig;
+        const { u, p } = { u: credentials.username, p: credentials.password };
+        
+        if (engine === 'mysql') {
+          const mysql = require('mysql2/promise');
+          const conn = await mysql.createConnection({ host: ip, port, user: u, password: p });
+          const [rows] = await conn.query("SHOW TABLES");
+          await conn.end();
+          return { success: true, tables: rows.map((r: any) => Object.values(r)[0]) };
+        } else if (engine === 'mssql') {
+          const sql = require('mssql');
+          const pool = await sql.connect({ user: u, password: p, server: ip, port, options: { encrypt: false, trustServerCertificate: true } });
+          const result = await pool.request().query("SELECT table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE'");
+          await sql.close();
+          return { success: true, tables: result.recordset.map((r: any) => r.table_name) };
+        } else if (engine === 'postgres') {
+          const { Client } = require('pg');
+          const client = new Client({ host: ip, port, user: u, password: p });
+          await client.connect();
+          const res = await client.query("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname != 'pg_catalog' AND schemaname != 'information_schema'");
+          await client.end();
+          return { success: true, tables: res.rows.map((r: any) => r.tablename) };
+        }
+      }
+
       const ext = path.extname(pathOrUrl).toLowerCase();
       if (ext === '.csv' || ext === '.json') {
         return { success: true, tables: [path.basename(pathOrUrl)] };
@@ -297,6 +355,33 @@ export function setupIpc() {
 
   ipcMain.handle('get-table-columns', async (event, pathOrUrl: string, tableName: string) => {
     try {
+      if (pathOrUrl.startsWith('remote://')) {
+        const remoteConfig = getStore('remoteDbConnection') as any;
+        const { engine, ip, port, credentials } = remoteConfig;
+        const { u, p } = { u: credentials.username, p: credentials.password };
+        
+        if (engine === 'mysql') {
+          const mysql = require('mysql2/promise');
+          const conn = await mysql.createConnection({ host: ip, port, user: u, password: p });
+          const [rows] = await conn.query(`SHOW COLUMNS FROM \`${tableName}\``);
+          await conn.end();
+          return { success: true, columns: rows.map((r: any) => r.Field) };
+        } else if (engine === 'mssql') {
+          const sql = require('mssql');
+          const pool = await sql.connect({ user: u, password: p, server: ip, port, options: { encrypt: false, trustServerCertificate: true } });
+          const result = await pool.request().query(`SELECT column_name FROM information_schema.columns WHERE table_name = '${tableName}'`);
+          await sql.close();
+          return { success: true, columns: result.recordset.map((r: any) => r.column_name) };
+        } else if (engine === 'postgres') {
+          const { Client } = require('pg');
+          const client = new Client({ host: ip, port, user: u, password: p });
+          await client.connect();
+          const res = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name = '${tableName}'`);
+          await client.end();
+          return { success: true, columns: res.rows.map((r: any) => r.column_name) };
+        }
+      }
+
       const ext = path.extname(pathOrUrl).toLowerCase();
       if (ext === '.csv') {
         const content = fs.readFileSync(pathOrUrl, 'utf8');
@@ -322,6 +407,33 @@ export function setupIpc() {
 
   ipcMain.handle('get-table-sample', async (event, pathOrUrl: string, tableName: string) => {
     try {
+      if (pathOrUrl.startsWith('remote://')) {
+        const remoteConfig = getStore('remoteDbConnection') as any;
+        const { engine, ip, port, credentials } = remoteConfig;
+        const { u, p } = { u: credentials.username, p: credentials.password };
+        
+        if (engine === 'mysql') {
+          const mysql = require('mysql2/promise');
+          const conn = await mysql.createConnection({ host: ip, port, user: u, password: p });
+          const [rows] = await conn.query(`SELECT * FROM \`${tableName}\` LIMIT 5`);
+          await conn.end();
+          return { success: true, rawSample: rows };
+        } else if (engine === 'mssql') {
+          const sql = require('mssql');
+          const pool = await sql.connect({ user: u, password: p, server: ip, port, options: { encrypt: false, trustServerCertificate: true } });
+          const result = await pool.request().query(`SELECT TOP 5 * FROM ${tableName}`);
+          await sql.close();
+          return { success: true, rawSample: result.recordset };
+        } else if (engine === 'postgres') {
+          const { Client } = require('pg');
+          const client = new Client({ host: ip, port, user: u, password: p });
+          await client.connect();
+          const res = await client.query(`SELECT * FROM "${tableName}" LIMIT 5`);
+          await client.end();
+          return { success: true, rawSample: res.rows };
+        }
+      }
+
       const ext = path.extname(pathOrUrl).toLowerCase();
       if (ext === '.csv') {
         const content = fs.readFileSync(pathOrUrl, 'utf8');
@@ -420,5 +532,22 @@ export function setupIpc() {
       return { success: true };
     }
     return { success: false, error: 'Lead not found locally' };
+  });
+
+  ipcMain.on('clear-notifications', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) win.flashFrame(false);
+    if (app.setBadgeCount) app.setBadgeCount(0);
+  });
+
+  ipcMain.on('bring-window-to-front', () => {
+    const windows = BrowserWindow.getAllWindows();
+    // Find the main window (not the overlay)
+    const mainWindow = windows.find(w => w.getSize()[0] > 500); 
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 }

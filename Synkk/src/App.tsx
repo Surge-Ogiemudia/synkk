@@ -9,6 +9,8 @@ import Done from './renderer/screens/Done';
 import ManualOverride from './renderer/screens/ManualOverride';
 import WebScraper from './renderer/screens/WebScraper';
 
+import NotificationOverlay from './renderer/screens/NotificationOverlay';
+
 function App() {
   React.useEffect(() => {
     const handleOnline = () => {
@@ -26,14 +28,37 @@ function App() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    // Clear notifications on window focus
+    const handleFocus = () => {
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      ipcRenderer.send('clear-notifications');
+    };
+    window.addEventListener('focus', handleFocus);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('focus', handleFocus);
     };
   }, []);
 
+  const isOverlay = window.location.hash.includes('overlay');
+
+  if (isOverlay) {
+    return (
+      <MemoryRouter initialEntries={['/overlay']}>
+        <div className="w-full h-screen overflow-hidden bg-transparent">
+          <Routes>
+            <Route path="/overlay" element={<NotificationOverlay />} />
+          </Routes>
+        </div>
+      </MemoryRouter>
+    );
+  }
+
   return (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/']}>
       <div className="relative w-full h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#050505] text-slate-100 font-sans custom-scroll">
         {/* Animated Background Blobs */}
         <div className="blob bg-emerald-500/20 w-[600px] h-[600px] top-[-10%] left-[-10%] fixed"></div>
@@ -51,6 +76,7 @@ function App() {
             <Route path="/setup" element={<StorefrontSetup />} />
             <Route path="/guest-auth" element={<GuestAuth />} />
             <Route path="/done" element={<Done />} />
+            <Route path="/overlay" element={<NotificationOverlay />} />
           </Routes>
         </div>
       </div>

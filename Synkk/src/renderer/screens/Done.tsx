@@ -24,6 +24,8 @@ export default function Done() {
   const [isRetrying, setIsRetrying] = React.useState(false);
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [notifyOutOfStock, setNotifyOutOfStock] = React.useState(true);
+  const [alarmDuration, setAlarmDuration] = React.useState('infinite');
+  const [pendingAlert, setPendingAlert] = React.useState<any>(null);
 
   useEffect(() => {
     // Save storefront data to backend
@@ -110,6 +112,9 @@ export default function Done() {
       if (settings && settings.notifyOutOfStock !== undefined) {
         setNotifyOutOfStock(settings.notifyOutOfStock);
       }
+      if (settings && settings.alarmDuration !== undefined) {
+        setAlarmDuration(settings.alarmDuration);
+      }
       
       // Load persisted sync error (if any)
       const lastError = await ipcRenderer.invoke('get-last-sync-error');
@@ -135,11 +140,21 @@ export default function Done() {
     // Listen for push notifications to open Orders tab
     ipcRenderer.on('navigate-to-orders', () => setActiveTab('orders'));
     ipcRenderer.on('navigate-to-leads', () => setActiveTab('leads'));
+    
+    ipcRenderer.on('refresh-orders-list', () => window.dispatchEvent(new Event('refresh-orders-list')));
+    ipcRenderer.on('refresh-leads-list', () => window.dispatchEvent(new Event('refresh-leads-list')));
+    
+    ipcRenderer.on('show-notification-modal', (_e: any, alertData: any) => {
+      setPendingAlert(alertData);
+    });
 
     return () => {
       clearInterval(interval);
       ipcRenderer.removeAllListeners('navigate-to-orders');
       ipcRenderer.removeAllListeners('navigate-to-leads');
+      ipcRenderer.removeAllListeners('refresh-orders-list');
+      ipcRenderer.removeAllListeners('refresh-leads-list');
+      ipcRenderer.removeAllListeners('show-notification-modal');
       ipcRenderer.removeAllListeners('sync-error');
       ipcRenderer.removeAllListeners('sync-success');
     };
@@ -160,6 +175,16 @@ export default function Done() {
     const { ipcRenderer } = window.require('electron');
     const settings = await ipcRenderer.invoke('get-settings') || {};
     settings.notifyOutOfStock = newVal;
+    await ipcRenderer.invoke('save-settings', settings);
+  };
+
+  const handleAlarmChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setAlarmDuration(val);
+    // @ts-ignore
+    const { ipcRenderer } = window.require('electron');
+    const settings = await ipcRenderer.invoke('get-settings') || {};
+    settings.alarmDuration = val;
     await ipcRenderer.invoke('save-settings', settings);
   };
 
@@ -196,10 +221,47 @@ export default function Done() {
   };
 
   return (
-    <div className="flex flex-col items-center w-full max-w-md px-6 py-8">
+    <div className="flex flex-col items-center w-full max-w-6xl px-6 pt-4 pb-8 relative mx-auto">
       
+      {/* Persistent Full-Screen Modal */}
+      {pendingAlert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-6 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border-2 border-emerald-500/50 rounded-2xl w-full max-w-md p-8 shadow-2xl flex flex-col items-center text-center">
+            {pendingAlert.type === 'order' ? (
+              <Package className="w-16 h-16 text-emerald-400 mb-4 animate-bounce" />
+            ) : (
+              <div className="relative mb-4 animate-bounce">
+                <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                <div className="absolute -top-1 -right-2 w-4 h-4 bg-emerald-500 rounded-full animate-pulse" />
+              </div>
+            )}
+            <h2 className="text-3xl font-bold text-white mb-2">
+              {pendingAlert.type === 'order' ? 'New Order!' : 'New Lead Alert!'}
+            </h2>
+            <p className="text-lg text-slate-300 mb-8">
+              {pendingAlert.type === 'order' 
+                ? `${pendingAlert.data.patientName || 'A customer'} ordered ${pendingAlert.data.itemsCount} items for ₦${pendingAlert.data.totalAmount}.`
+                : `A patient in ${pendingAlert.data.location} is looking for ${pendingAlert.data.medicines?.map((m:any) => m.name).join(', ')}.`
+              }
+            </p>
+            <button 
+              onClick={() => {
+                setActiveTab(pendingAlert.type === 'order' ? 'orders' : 'leads');
+                setPendingAlert(null);
+                // @ts-ignore
+                const { ipcRenderer } = window.require('electron');
+                ipcRenderer.send('clear-notifications');
+              }}
+              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-lg font-bold shadow-lg shadow-emerald-900/50 transition flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 className="w-6 h-6" /> View Details
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Tab Navigation */}
-      <div className="flex w-full bg-slate-900 rounded-xl p-1 mb-6 border border-slate-800">
+      <div className="flex w-full max-w-md mx-auto gap-2 bg-slate-900 rounded-xl p-2 mb-6 border border-slate-800">
         <button 
           onClick={() => setActiveTab('dashboard')}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
@@ -230,10 +292,10 @@ export default function Done() {
       </div>
 
       {activeTab === 'dashboard' ? (
-        <>
+        <div className="w-full flex flex-col items-center">
           {/* ── Sync Error Banner ── */}
           {syncError && (
-            <div className={`w-full rounded-xl p-4 mb-4 flex items-start gap-3 animate-in slide-in-from-top duration-300 ${
+            <div className={`w-full max-w-3xl rounded-xl p-4 mb-6 flex items-start gap-3 animate-in slide-in-from-top duration-300 ${
               syncError.severity === 'critical' 
                 ? 'bg-red-500/10 border border-red-500/30' 
                 : 'bg-amber-500/10 border border-amber-500/30'
@@ -279,126 +341,156 @@ export default function Done() {
             </div>
           )}
 
-          <div className="flex items-center gap-3 mb-6">
-            <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-            <h2 className="text-2xl font-bold text-white">Storefront Live</h2>
-          </div>
-
-          <div 
-            onClick={() => {
-              // @ts-ignore
-              const { shell } = window.require('electron');
-              shell.openExternal(`https://${slug}.psx.ng`);
-            }}
-            className="w-full bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col items-center mb-6 cursor-pointer hover:bg-slate-700/50 transition-colors group"
-          >
-            <div className="w-40 h-40 bg-white rounded-xl mb-4 flex items-center justify-center p-2 group-hover:scale-105 transition-transform">
-              <QRCode 
-                id="StorefrontQRCode"
-                value={`https://${slug}.psx.ng`} 
-                size={144}
-                style={{ height: "auto", maxWidth: "100%", width: "100%" }}
-                viewBox={`0 0 144 144`}
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <p className="text-emerald-400 font-mono text-lg tracking-wide font-bold flex items-center gap-2">
-                {slug}.psx.ng
-                <ExternalLink className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </p>
-              <button 
-                onClick={downloadQR}
-                className="p-2 bg-emerald-500/10 hover:bg-emerald-500/30 text-emerald-400 rounded-full transition-colors"
-                title="Download Storefront Poster"
-              >
-                <Download className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 mb-6">
-            <h3 className="text-sm font-semibold text-slate-300 mb-4">Sync Settings</h3>
+          <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
             
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm text-slate-400">Sync Frequency</span>
-              <select 
-                value={syncFreq} 
-                onChange={handleFreqChange}
-                className="bg-slate-800 border border-slate-600 text-white text-sm rounded-lg px-3 py-1.5 outline-none focus:border-emerald-500"
-              >
-                <option value="15m">Every 15 mins</option>
-                <option value="1h">Hourly</option>
-                <option value="12h">Every 12 hours</option>
-                <option value="24h">Daily (Midnight)</option>
-              </select>
-            </div>
+            {/* Left Column - Sync Settings */}
+            <div className="flex flex-col w-full order-2 md:order-1 pt-0 md:pt-14">
+              <div className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 mb-6">
+                <h3 className="text-sm font-semibold text-slate-300 mb-4">Sync Settings</h3>
+                
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm text-slate-400">Sync Frequency</span>
+                  <select 
+                    value={syncFreq} 
+                    onChange={handleFreqChange}
+                    className="bg-slate-800 border border-slate-600 text-white text-xs rounded-md px-2 py-1 outline-none focus:border-emerald-500 min-w-[120px]"
+                  >
+                    <option value="15m">Every 15 mins</option>
+                    <option value="1h">Hourly</option>
+                    <option value="12h">Every 12 hours</option>
+                    <option value="24h">Daily (Midnight)</option>
+                  </select>
+                </div>
 
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm text-slate-400">Receive out-of-stock notifications</span>
-              <button 
-                onClick={handleNotifyToggle}
-                className={`w-10 h-5 rounded-full relative transition-colors ${notifyOutOfStock ? 'bg-emerald-500' : 'bg-slate-700'}`}
-              >
-                <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-all ${notifyOutOfStock ? 'left-5.5' : 'left-0.5'}`} style={{ left: notifyOutOfStock ? '20px' : '2px' }} />
-              </button>
-            </div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm text-slate-400">Last Synced</span>
+                  <span className="text-sm text-slate-300 font-mono">
+                    {lastSync ? new Date(lastSync).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Pending...'}
+                  </span>
+                </div>
 
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm text-slate-400">Last Synced</span>
-              <span className="text-sm text-slate-300 font-mono">
-                {lastSync ? new Date(lastSync).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Pending...'}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-2">
-              <span className="text-sm text-slate-400">Force Sync</span>
-              <button
-                onClick={async () => {
-                  setIsSyncing(true);
-                  // @ts-ignore
-                  const { ipcRenderer } = window.require('electron');
-                  const pairingData = await ipcRenderer.invoke('get-pairing-data');
-                  if (pairingData?.posIdentifier?.endsWith('.csv')) {
-                    const newPath = await ipcRenderer.invoke('update-csv-path');
-                    if (!newPath) {
+                <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-2">
+                  <span className="text-sm text-slate-400">Force Sync</span>
+                  <button
+                    onClick={async () => {
+                      setIsSyncing(true);
+                      // @ts-ignore
+                      const { ipcRenderer } = window.require('electron');
+                      const pairingData = await ipcRenderer.invoke('get-pairing-data');
+                      if (pairingData?.posIdentifier?.endsWith('.csv')) {
+                        const newPath = await ipcRenderer.invoke('update-csv-path');
+                        if (!newPath) {
+                          setIsSyncing(false);
+                          return; // User canceled the file dialog
+                        }
+                      }
+                      await ipcRenderer.invoke('trigger-sync');
                       setIsSyncing(false);
-                      return; // User canceled the file dialog
-                    }
-                  }
-                  await ipcRenderer.invoke('trigger-sync');
-                  setIsSyncing(false);
+                    }}
+                    disabled={isSyncing}
+                    className="text-xs text-emerald-500 hover:text-white font-medium px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                    {isSyncing ? 'Syncing...' : 'Run Manual Sync'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Middle Column - QR Code */}
+            <div className="flex flex-col items-center w-full order-1 md:order-2">
+              <div className="flex items-center gap-3 mb-6">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+                <h2 className="text-2xl font-bold text-white">Storefront Live</h2>
+              </div>
+
+              <div 
+                onClick={() => {
+                  // @ts-ignore
+                  const { shell } = window.require('electron');
+                  shell.openExternal(`https://${slug}.psx.ng`);
                 }}
-                disabled={isSyncing}
-                className="text-xs text-emerald-500 hover:text-white font-medium px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full max-w-sm bg-slate-800 border border-slate-700 rounded-2xl p-6 flex flex-col items-center mb-6 cursor-pointer hover:bg-slate-700/50 transition-colors group mx-auto"
               >
-                {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                {isSyncing ? 'Syncing...' : 'Run Manual Sync'}
+                <div className="w-40 h-40 bg-white rounded-xl mb-4 flex items-center justify-center p-2 group-hover:scale-105 transition-transform">
+                  <QRCode 
+                    id="StorefrontQRCode"
+                    value={`https://${slug}.psx.ng`} 
+                    size={144}
+                    style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+                    viewBox={`0 0 144 144`}
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <p className="text-emerald-400 font-mono text-lg tracking-wide font-bold flex items-center gap-2">
+                    {slug}.psx.ng
+                    <ExternalLink className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </p>
+                  <button 
+                    onClick={downloadQR}
+                    className="p-2 bg-emerald-500/10 hover:bg-emerald-500/30 text-emerald-400 rounded-full transition-colors"
+                    title="Download Storefront Poster"
+                  >
+                    <Download className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column - Notification Settings */}
+            <div className="flex flex-col w-full order-3 md:order-3 pt-0 md:pt-14">
+              <div className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 mb-6">
+                <h3 className="text-sm font-semibold text-slate-300 mb-4">Notification Settings</h3>
+                
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm text-slate-400 text-left mr-4">Receive out-of-stock notifications</span>
+                  <button 
+                    onClick={handleNotifyToggle}
+                    className={`w-10 h-5 rounded-full relative transition-colors flex-shrink-0 ${notifyOutOfStock ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-all ${notifyOutOfStock ? 'left-5.5' : 'left-0.5'}`} style={{ left: notifyOutOfStock ? '20px' : '2px' }} />
+                  </button>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <span className="text-sm text-slate-400">Alarm Beep Duration</span>
+                  <select 
+                    value={alarmDuration} 
+                    onChange={handleAlarmChange}
+                    className="bg-slate-800 border border-slate-600 text-white text-xs rounded-md px-2 py-1 outline-none focus:border-emerald-500 min-w-[120px] max-w-[140px]"
+                  >
+                    <option value="infinite">Continuous Ring</option>
+                    <option value="1">1 Beep</option>
+                    <option value="5">5 Beeps</option>
+                    <option value="off">Off (Silent)</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  // @ts-ignore
+                  const { shell } = window.require('electron');
+                  const baseUrl = import.meta.env.DEV ? 'http://localhost:3000' : 'https://www.psx.ng';
+                  const targetUrl = slug.startsWith('guest-') 
+                    ? `${baseUrl}/auth?claim_slug=${slug}&view=storeManagement` 
+                    : `${baseUrl}/?view=storeManagement`;
+                  shell.openExternal(targetUrl);
+                }}
+                className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg mb-4"
+              >
+                Open Web Storefront
+                <ExternalLink className="w-5 h-5" />
               </button>
             </div>
           </div>
-
-          <button
-            onClick={() => {
-              // @ts-ignore
-              const { shell } = window.require('electron');
-              const baseUrl = import.meta.env.DEV ? 'http://localhost:3000' : 'https://www.psx.ng';
-              const targetUrl = slug.startsWith('guest-') 
-                ? `${baseUrl}/auth?claim_slug=${slug}&view=storeManagement` 
-                : `${baseUrl}/?view=storeManagement`;
-              shell.openExternal(targetUrl);
-            }}
-            className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg mb-4"
-          >
-            Open Web Storefront
-            <ExternalLink className="w-5 h-5" />
-          </button>
-        </>
+        </div>
       ) : activeTab === 'orders' ? (
-        <OrdersTab slug={slug} />
+        <div className="w-full max-w-md mx-auto"><OrdersTab slug={slug} /></div>
       ) : activeTab === 'leads' ? (
-        <LeadsTab slug={slug} />
+        <div className="w-full max-w-md mx-auto"><LeadsTab slug={slug} /></div>
       ) : (
-        <SourceTab slug={slug} />
+        <div className="w-full max-w-md mx-auto"><SourceTab slug={slug} /></div>
       )}
 
       {/* Subtle Footer Links */}

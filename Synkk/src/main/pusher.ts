@@ -1,6 +1,7 @@
-import Pusher from 'pusher-js';
-import { Notification } from 'electron';
+const Pusher = require('pusher-js');
+import { Notification, app } from 'electron';
 import { getStore, setStore } from '../store/local';
+import { showNotificationOverlay } from './overlay';
 
 let pusherClient: Pusher | null = null;
 let currentChannel: any = null;
@@ -14,10 +15,21 @@ export function initializePusher(slug: string, mainWindow: any) {
     pusherClient.disconnect();
   }
 
-  // Initialize Pusher Client
-  pusherClient = new Pusher(PUSHER_KEY, {
-    cluster: PUSHER_CLUSTER,
-  });
+  console.log(`[Pusher] Initializing pusher with key: ${PUSHER_KEY}, cluster: ${PUSHER_CLUSTER}`);
+  console.log(`[Pusher] typeof Pusher:`, typeof Pusher);
+  if (Pusher) {
+    console.log(`[Pusher] Object keys:`, Object.keys(Pusher));
+  }
+  try {
+    const PusherConstructor = Pusher.Pusher || Pusher.default || Pusher;
+    console.log(`[Pusher] Constructor is:`, typeof PusherConstructor);
+    pusherClient = new PusherConstructor(PUSHER_KEY, {
+      cluster: PUSHER_CLUSTER,
+    });
+    console.log(`[Pusher] pusherClient created successfully.`);
+  } catch (err) {
+    console.error(`[Pusher] Failed to create pusherClient:`, err);
+  }
 
   pusherClient.connection.bind('state_change', (states: any) => {
     console.log('[Pusher] Connection State changed from', states.previous, 'to', states.current);
@@ -37,7 +49,21 @@ export function initializePusher(slug: string, mainWindow: any) {
   currentChannel.bind('new-order', (data: any) => {
     console.log('[Pusher] Received new order:', data);
     
-    // 1. Show Native Desktop Notification
+    // Add badge and flash taskbar
+    if (app.setBadgeCount) app.setBadgeCount(1);
+    if (mainWindow && !mainWindow.isFocused()) {
+      mainWindow.flashFrame(true);
+      // Tell frontend to show persistent modal
+      mainWindow.webContents.send('show-notification-modal', { type: 'order', data });
+    }
+    // Read Notification Settings
+    const orderSettings = getStore('settings') || {};
+    const orderAlarmDuration = orderSettings.alarmDuration || 'infinite';
+
+    // Spawn our custom persistent overlay
+    showNotificationOverlay({ type: 'order', data, alarmDuration: orderAlarmDuration });
+    
+    // 1. Show Native Desktop Notification (fallback)
     const notification = new Notification({
       title: '🚨 New Online Order!',
       body: `${data.patientName} just ordered ${data.itemsCount} items. (₦${data.totalAmount})`,
@@ -50,6 +76,8 @@ export function initializePusher(slug: string, mainWindow: any) {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.show();
         mainWindow.focus();
+        mainWindow.flashFrame(false);
+        if (app.setBadgeCount) app.setBadgeCount(0);
         
         // Tell renderer to switch to the Orders tab
         mainWindow.webContents.send('navigate-to-orders');
@@ -96,6 +124,20 @@ export function initializePusher(slug: string, mainWindow: any) {
         mainWindow.webContents.send('refresh-leads-list');
       }
     }
+    
+    // Add badge and flash taskbar
+    if (app.setBadgeCount) app.setBadgeCount(1);
+    if (mainWindow && !mainWindow.isFocused()) {
+      mainWindow.flashFrame(true);
+      // Tell frontend to show persistent modal
+      mainWindow.webContents.send('show-notification-modal', { type: 'lead', data: newLead });
+    }
+    // Read Notification Settings
+    const leadSettings = getStore('settings') || {};
+    const leadAlarmDuration = leadSettings.alarmDuration || 'infinite';
+
+    // Spawn our custom persistent overlay
+    showNotificationOverlay({ type: 'lead', data: newLead, alarmDuration: leadAlarmDuration });
 
     const title = data.hasStock ? '🚨 Demand Alert (In Stock)!' : '🔔 Demand Alert (Out of Stock)';
     const bodyText = data.hasStock 
@@ -114,6 +156,8 @@ export function initializePusher(slug: string, mainWindow: any) {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.show();
         mainWindow.focus();
+        mainWindow.flashFrame(false);
+        if (app.setBadgeCount) app.setBadgeCount(0);
         mainWindow.webContents.send('navigate-to-leads');
       }
     });
@@ -161,6 +205,9 @@ export function initializePusher(slug: string, mainWindow: any) {
       if (mainWindow) {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.show();
+        mainWindow.focus();
+        mainWindow.flashFrame(false);
+        if (app.setBadgeCount) app.setBadgeCount(0);
         mainWindow.webContents.send('navigate-to-leads');
       }
     });
