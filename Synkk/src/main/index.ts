@@ -87,7 +87,20 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
   app.setAppUserModelId('Synkk');
   if (app.isPackaged) {
     app.setLoginItemSettings({
@@ -111,6 +124,7 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => {
-  // Do nothing. The app stays in the system tray.
-});
+  app.on('window-all-closed', () => {
+    // Do nothing. The app stays in the system tray.
+  });
+}
