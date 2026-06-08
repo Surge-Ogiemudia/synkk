@@ -39,7 +39,10 @@ function createWindow() {
   }
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
+    const isHiddenBoot = process.argv.includes('--hidden-on-boot');
+    if (!isHiddenBoot) {
+      mainWindow?.show();
+    }
     
     const storefront = store.get('storefront') as any;
     const initialSlug = storefront?.slug;
@@ -106,7 +109,8 @@ if (!gotTheLock) {
     app.setLoginItemSettings({
       openAtLogin: true,
       openAsHidden: true,
-      path: app.getPath('exe')
+      path: app.getPath('exe'),
+      args: ['--hidden-on-boot']
     });
   }
 
