@@ -165,15 +165,59 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     // 3. Normal online extraction
     console.log('Extracting latest inventory...');
     let rawInventory: any[] = [];
+    let syncTier: number = 1;
     
     if (pairingData.posIdentifier && pairingData.posIdentifier.startsWith('http')) {
       // Branch 2: Web POS (Hidden Browser Window)
       console.log('Target is Web POS. Spawning background browser...');
-      rawInventory = await extractFromWebPOS(pairingData.posIdentifier, pairingData.schemaMapping);
+      try {
+        const result = await extractFromWebPOS(pairingData.posIdentifier, pairingData.schemaMapping);
+        rawInventory = result.items;
+        syncTier = result.tier;
+      } catch (err: any) {
+        if (err.message === 'ALL_TIERS_FAILED') {
+          console.log('All automated tiers failed. Triggering CSV fallback...');
+          await new Promise((resolvePrompt, rejectPrompt) => {
+            const { Notification, dialog, BrowserWindow } = require('electron');
+            if (Notification.isSupported()) {
+              const notif = new Notification({
+                title: 'Synkk Web POS Sync Failed',
+                body: 'All automated sync methods failed. Click here to manually upload your inventory CSV.'
+              });
+              notif.on('click', async () => {
+                const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+                const filePaths = dialog.showOpenDialogSync(win, {
+                  title: 'Select Inventory CSV',
+                  filters: [{ name: 'CSV', extensions: ['csv'] }],
+                  properties: ['openFile']
+                });
+                if (filePaths && filePaths.length > 0) {
+                  try {
+                    rawInventory = await extractFromLocalDB(filePaths[0], pairingData.schemaMapping);
+                    syncTier = 5; // Tier 5 is CSV Fallback
+                    resolvePrompt(null);
+                  } catch(e) {
+                    rejectPrompt(e);
+                  }
+                } else {
+                  rejectPrompt(new Error('User cancelled CSV fallback.'));
+                }
+              });
+              notif.on('close', () => rejectPrompt(new Error('CSV fallback notification dismissed.')));
+              notif.show();
+            } else {
+              rejectPrompt(new Error('Notifications not supported. Cannot prompt for CSV fallback.'));
+            }
+          });
+        } else {
+          throw err;
+        }
+      }
     } else if (pairingData.posIdentifier) {
       // Branch 1: Local SQLite DB
       console.log('Target is Local Database. Executing SQLite extraction...');
       rawInventory = await extractFromLocalDB(pairingData.posIdentifier, pairingData.schemaMapping);
+      syncTier = 1;
     }
 
     const lastSyncSnapshot = (getStore('lastSyncSnapshot') || []) as any[];
@@ -212,10 +256,14 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
       pharmacy_name: storefrontData.name,
       coordinates: storefrontData.coordinates,
       updates,
-      deletes
+      deletes,
+      sync_tier: syncTier
     };
 
     try {
+      // Show intermediate status since AI classification can take 5-10 seconds
+      updateTrayStatus('yellow', 'Classifying inventory...', updates.length + deletes.length);
+      
       // In production, this would be an actual API endpoint with auth tokens
       // For the MVP, we are POSTing to a placeholder relay route
       const response = await axios.post('https://www.pharmastackx.com/api/sync', payload, {
@@ -223,7 +271,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
         },
-        timeout: 10000
+        timeout: 30000 // Increased from 10s to 30s to allow AI classification to finish
       });
       console.log('Successfully pushed to Supabase via Web Relay!');
       
@@ -362,8 +410,8 @@ async function extractFromLocalDB(dbPath: string, schema: any): Promise<any[]> {
 }
 
 // ── Web POS Extraction with Auto-Relogin ──────────────────────────────
-async function extractFromWebPOS(url: string, schema: any): Promise<any[]> {
-  return new Promise((resolve, reject) => {
+async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any[], tier: number }> {
+  return new Promise(async (resolve, reject) => {
     const hiddenWindow = new BrowserWindow({
       show: false,
       webPreferences: {
@@ -371,6 +419,36 @@ async function extractFromWebPOS(url: string, schema: any): Promise<any[]> {
         contextIsolation: true
       }
     });
+
+    let networkPayload: any = null;
+    let networkUrl: string | null = null;
+    
+    // Tier 3 Setup: Attach Debugger before loading to intercept API calls
+    try {
+      hiddenWindow.webContents.debugger.attach('1.3');
+      await hiddenWindow.webContents.debugger.sendCommand('Network.enable');
+      hiddenWindow.webContents.debugger.on('message', (event, method, params) => {
+        if (method === 'Network.responseReceived') {
+          if (params.response.mimeType?.includes('json')) {
+            hiddenWindow.webContents.debugger.sendCommand('Network.getResponseBody', { requestId: params.requestId })
+              .then(res => {
+                if (res.body && res.body.length > 5000) { // Naive check for "large" inventory payload
+                  try {
+                    const json = JSON.parse(res.body);
+                    // Check if it's an array or has a data array
+                    if (Array.isArray(json) || (json.data && Array.isArray(json.data))) {
+                      networkPayload = json;
+                      networkUrl = params.response.url;
+                    }
+                  } catch (e) {}
+                }
+              }).catch(() => {});
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Debugger attach failed:', err);
+    }
 
     hiddenWindow.loadURL(url);
 
@@ -470,7 +548,7 @@ async function extractFromWebPOS(url: string, schema: any): Promise<any[]> {
           
           if (loginResult === 'NO_FIELDS' || loginResult === 'NO_SUBMIT_BUTTON') {
             hiddenWindow.destroy();
-            reject(new Error(`Auto-Login Failed: login_screen_detected. Could not find the login form fields. Please log in manually via the Source tab.`));
+            reject(new Error(`Auto-Login Failed: login_screen_detected. Could not find the login form fields.`));
             return;
           }
 
@@ -490,7 +568,7 @@ async function extractFromWebPOS(url: string, schema: any): Promise<any[]> {
           const stillLoginPage = await hiddenWindow.webContents.executeJavaScript(loginDetectCode);
           if (stillLoginPage) {
             hiddenWindow.destroy();
-            reject(new Error('Auto-Login Failed: login_screen_detected. Your saved password may be incorrect, or the site requires a CAPTCHA. Please reconnect via the Source tab.'));
+            reject(new Error('Auto-Login Failed: login_screen_detected. Your saved password may be incorrect, or the site requires a CAPTCHA.'));
             return;
           }
 
@@ -498,9 +576,9 @@ async function extractFromWebPOS(url: string, schema: any): Promise<any[]> {
 
           // Navigate back to the target URL if the login redirection took us elsewhere (like a generic dashboard)
           const currentUrl = hiddenWindow.webContents.getURL();
-          if (currentUrl !== pairingData.url) {
-            console.log(`Redirected to ${currentUrl} after login. Navigating back to target inventory page: ${pairingData.url}`);
-            await hiddenWindow.loadURL(pairingData.url);
+          if (currentUrl !== url) {
+            console.log(`Redirected to ${currentUrl} after login. Navigating back to target inventory page: ${url}`);
+            await hiddenWindow.loadURL(url);
             await new Promise<void>((res) => {
               let resolved = false;
               hiddenWindow.webContents.on('did-finish-load', () => {
@@ -515,90 +593,124 @@ async function extractFromWebPOS(url: string, schema: any): Promise<any[]> {
         }
 
         // ── Normal extraction flow ──
-        console.log('Waiting for Single Page Applications (SPAs) to render inventory data...');
+        console.log('Waiting for SPAs to render inventory data...');
         await new Promise(r => setTimeout(r, 8000));
 
-        console.log('Attempting to expand rows per page and auto-scroll...');
+        // ── 4-TIER FALLBACK STRATEGY ──
+        // Note on Execution Order vs Tier Numbering:
+        // The tiers are numbered by quality (Tier 2 is better than Tier 3, etc).
+        // However, they work together: Tier 3 (Smart Discovery) runs on initial setup 
+        // to sniff network traffic and discover the internal API endpoint. 
+        // Once discovered, subsequent syncs will attempt Tier 2 (Direct API Hijack) FIRST 
+        // because it is much faster. If Tier 2 fails or has no endpoint, it falls back 
+        // to Tier 3, then Tier 4 (DOM Scraping), and finally Tier 5 (CSV Upload).
+
+        async function processWithVercelAI(payloadText: string, tier: number) {
+          const response = await fetch('https://www.pharmastackx.com/api/synkk-ai/extract-web-pos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pageText: payloadText, schema })
+          });
+          if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(`Vercel Backend returned ${response.status}: ${err.error || response.statusText}`);
+          }
+          const data = await response.json();
+          return { items: data, tier };
+        }
+
+        // Tier 2: Session Hijacking
+        try {
+          const discoveredApiEndpoint = getStore('discoveredApiEndpoint') as string | null;
+          if (discoveredApiEndpoint) {
+            console.log('Tier 2: Discovered API endpoint found. Attempting direct fetch...');
+            const tier2Code = `
+              (async () => {
+                try {
+                  const res = await fetch("${discoveredApiEndpoint}");
+                  if (res.ok) return await res.json();
+                  return null;
+                } catch(e) { return null; }
+              })()
+            `;
+            const tier2Data = await hiddenWindow.webContents.executeJavaScript(tier2Code);
+            if (tier2Data) {
+              console.log('Tier 2 successful!');
+              const result = await processWithVercelAI(JSON.stringify(tier2Data), 2);
+              hiddenWindow.destroy();
+              return resolve(result);
+            }
+          }
+        } catch (e) {
+          console.log('Tier 2 failed:', e);
+        }
+
+        // Tier 3: Network Interception (Smart Discovery)
+        if (networkPayload && networkUrl) {
+           console.log('Tier 3: Intercepted valid JSON payload. Saving endpoint for Tier 2...');
+           setStore('discoveredApiEndpoint', networkUrl);
+           try {
+             const result = await processWithVercelAI(JSON.stringify(networkPayload), 3);
+             hiddenWindow.destroy();
+             return resolve(result);
+           } catch(e) {
+             console.log('Tier 3 AI processing failed:', e);
+           }
+        }
+
+        // Tier 4: DOM Scraping
+        console.log('Tier 4: Expanding rows and scraping DOM...');
         const expandAndScrollCode = `
           (async () => {
-            // 1. Try to find and change "Rows per page" native selects
             const selects = document.querySelectorAll('select');
             for (const select of selects) {
               const options = Array.from(select.options);
               const hasLargeNumbers = options.some(o => parseInt(o.value) >= 50 || parseInt(o.text) >= 50 || o.text.toLowerCase().includes('all'));
               const hasSmallNumbers = options.some(o => parseInt(o.value) === 10 || parseInt(o.value) === 20 || parseInt(o.text) === 10);
-              
               if (hasLargeNumbers && hasSmallNumbers) {
                 let maxOpt = options[0];
                 let maxVal = -1;
                 for (const o of options) {
-                  if (o.text.toLowerCase().includes('all')) {
-                    maxOpt = o;
-                    break;
-                  }
+                  if (o.text.toLowerCase().includes('all')) { maxOpt = o; break; }
                   const val = parseInt(o.value) || parseInt(o.text) || 0;
-                  if (val > maxVal) {
-                    maxVal = val;
-                    maxOpt = o;
-                  }
+                  if (val > maxVal) { maxVal = val; maxOpt = o; }
                 }
                 select.value = maxOpt.value;
                 select.dispatchEvent(new Event('change', { bubbles: true }));
-                await new Promise(r => setTimeout(r, 3000)); // wait for network fetch
+                await new Promise(r => setTimeout(r, 3000)); 
               }
             }
-
-            // 2. Auto-scroll to bottom for infinite scroll support
             await new Promise((resolve) => {
-              let totalHeight = 0;
-              let distance = 600;
-              let maxScrolls = 15; // Max ~7.5 seconds of scrolling
-              let scrolls = 0;
-              
+              let totalHeight = 0, distance = 600, scrolls = 0;
               let timer = setInterval(() => {
                 let scrollHeight = document.documentElement.scrollHeight || document.body.scrollHeight;
                 window.scrollBy(0, distance);
-                totalHeight += distance;
-                scrolls++;
-
-                if (totalHeight >= scrollHeight || scrolls >= maxScrolls) {
-                  clearInterval(timer);
-                  resolve(null);
-                }
+                totalHeight += distance; scrolls++;
+                if (totalHeight >= scrollHeight || scrolls >= 15) { clearInterval(timer); resolve(null); }
               }, 500);
             });
           })();
         `;
         await hiddenWindow.webContents.executeJavaScript(expandAndScrollCode);
-
-        // Wait another few seconds in case the scroll triggered lazy-loading images or text
         await new Promise(r => setTimeout(r, 3000));
         
-        console.log('Extracting text from page...');
-        const code = `document.body.innerText || document.body.textContent`;
-        const pageText = await hiddenWindow.webContents.executeJavaScript(code);
+        const pageText = await hiddenWindow.webContents.executeJavaScript(`document.body.innerText || document.body.textContent`);
         
-        // Pass to Semantic AI Backend
-        console.log('Sending web extraction payload to Vercel AI Backend...');
-        const response = await fetch('https://www.pharmastackx.com/api/synkk-ai/extract-web-pos', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ pageText, schema })
-        });
-
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          throw new Error(`Vercel Backend returned ${response.status}: ${err.error || response.statusText}`);
+        try {
+          const result = await processWithVercelAI(pageText, 4);
+          hiddenWindow.destroy();
+          return resolve(result);
+        } catch (t4Err) {
+          console.log('Tier 4 failed. Triggering CSV Fallback.');
+          hiddenWindow.destroy();
+          
+          // Trigger ALL_TIERS_FAILED error
+          reject(new Error('ALL_TIERS_FAILED'));
         }
 
-        const data = await response.json();
-        hiddenWindow.destroy();
-        resolve(data);
       } catch (e: any) {
         hiddenWindow.destroy();
-        reject(new Error(`Semantic Web Extraction Failed: ${e.message}`));
+        reject(e.message === 'ALL_TIERS_FAILED' ? e : new Error(`Semantic Web Extraction Failed: ${e.message}`));
       }
     });
 
