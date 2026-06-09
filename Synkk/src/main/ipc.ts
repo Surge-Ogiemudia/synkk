@@ -230,8 +230,57 @@ export function setupIpc() {
     return true;
   });
 
-  ipcMain.handle('save-learned-system', async (event, payload: { posIdentifier: string, schemaMapping: any }) => {
+  ipcMain.handle('save-learned-system', async (event, payload: any) => {
     try {
+      // If we have raw text from onboarding, process it NOW into structured items
+      if (payload.initialPayloadText) {
+        console.log('Processing initial onboarding payload into structured items...');
+        try {
+          const text: string = payload.initialPayloadText;
+          const schema = payload.schemaMapping;
+
+          // Split on actual newlines and chunk into groups of 100 lines
+          const lines = text.split('\n').filter((l: string) => l.trim().length > 0);
+          const chunkSize = 100;
+          const chunks: string[] = [];
+          for (let i = 0; i < lines.length; i += chunkSize) {
+            chunks.push(lines.slice(i, i + chunkSize).join('\n'));
+          }
+
+          let allItems: any[] = [];
+          for (const chunk of chunks) {
+            const res = await fetch('https://www.pharmastackx.com/api/synkk-ai/extract-web-pos', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pageText: chunk, schema })
+            });
+            if (res.ok) {
+              const items = await res.json();
+              if (Array.isArray(items)) {
+                allItems = [...allItems, ...items];
+              }
+            }
+          }
+
+          // Deduplicate by name
+          const seen = new Set<string>();
+          const unique: any[] = [];
+          for (const item of allItems) {
+            const key = (item.name || '').toLowerCase().trim();
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              unique.push(item);
+            }
+          }
+
+          console.log(`Onboarding extraction complete: ${unique.length} unique items from ${chunks.length} chunks.`);
+          payload.initialSyncItems = unique;
+        } catch (e: any) {
+          console.error('Onboarding extraction failed, will retry during first sync:', e.message);
+        }
+        delete payload.initialPayloadText; // never store raw text
+      }
+
       setStore('pairing', payload);
       const { updateKnowledgeBase } = require('../brain/knowledge');
       const success = await updateKnowledgeBase(payload);
@@ -486,6 +535,34 @@ export function setupIpc() {
   });
 
   // ── Secure Credential Storage (safeStorage) ─────────────────────────
+  ipcMain.handle('save-psx-credentials', async (event, { email, password }: { email: string; password: string }) => {
+    try {
+      if (!safeStorage.isEncryptionAvailable()) {
+        return { success: false, error: 'OS-level encryption is not available on this machine.' };
+      }
+      const encEmail = safeStorage.encryptString(email).toString('base64');
+      const encPass = safeStorage.encryptString(password).toString('base64');
+      setStore('psxCredentials', { encEmail, encPass });
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('get-psx-credentials', async () => {
+    try {
+      if (!safeStorage.isEncryptionAvailable()) return null;
+      const creds = getStore('psxCredentials') as any;
+      if (!creds || !creds.encEmail || !creds.encPass) return null;
+      
+      const email = safeStorage.decryptString(Buffer.from(creds.encEmail, 'base64'));
+      const password = safeStorage.decryptString(Buffer.from(creds.encPass, 'base64'));
+      return { email, password };
+    } catch (e) {
+      return null;
+    }
+  });
+
   ipcMain.handle('save-web-pos-credentials', async (event, { username, password }: { username: string; password: string }) => {
     try {
       if (!safeStorage.isEncryptionAvailable()) {
@@ -550,5 +627,68 @@ export function setupIpc() {
       mainWindow.show();
       mainWindow.focus();
     }
+  });
+
+  ipcMain.on('open-checkout-window', async (event, url) => {
+    const parentWin = BrowserWindow.fromWebContents(event.sender);
+    const checkoutWin = new BrowserWindow({
+      width: 1000,
+      height: 800,
+      parent: parentWin || undefined,
+      modal: !!parentWin,
+      show: false,
+      title: 'Secure Checkout',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    });
+
+    checkoutWin.setMenu(null);
+    
+    checkoutWin.on('ready-to-show', () => {
+      checkoutWin.show();
+    });
+
+    checkoutWin.webContents.on('did-finish-load', () => {
+      const currentUrl = checkoutWin.webContents.getURL();
+      // Try auto-login if the window lands on a login/auth page
+      if (currentUrl.includes('login') || currentUrl.includes('signin') || currentUrl.includes('auth')) {
+        try {
+          if (safeStorage.isEncryptionAvailable()) {
+            const creds = getStore('psxCredentials') as any;
+            if (creds && creds.encEmail && creds.encPass) {
+              const email = safeStorage.decryptString(Buffer.from(creds.encEmail, 'base64')).replace(/'/g, "\\'");
+              const password = safeStorage.decryptString(Buffer.from(creds.encPass, 'base64')).replace(/'/g, "\\'");
+              
+              const script = `
+                setTimeout(() => {
+                  const emailInput = document.querySelector('input[type="email"], input[name="email"], input[name="username"]');
+                  const passInput = document.querySelector('input[type="password"], input[name="password"]');
+                  if (emailInput && passInput) {
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    nativeSetter.call(emailInput, '${email}');
+                    emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    nativeSetter.call(passInput, '${password}');
+                    passInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    
+                    setTimeout(() => {
+                      const submitBtn = document.querySelector('button[type="submit"]') || 
+                                        Array.from(document.querySelectorAll('button')).find(b => b.textContent.toLowerCase().includes('log') || b.textContent.toLowerCase().includes('sign'));
+                      if (submitBtn) submitBtn.click();
+                    }, 500);
+                  }
+                }, 1000);
+              `;
+              checkoutWin.webContents.executeJavaScript(script).catch(e => console.error('Auto-login script error:', e));
+            }
+          }
+        } catch (e) {
+          console.error('Auto-login error:', e);
+        }
+      }
+    });
+
+    checkoutWin.loadURL(url);
   });
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Phone, Box, AlertCircle } from 'lucide-react';
+import { Search, MapPin, Phone, Box, AlertCircle, ShoppingCart } from 'lucide-react';
 
 export default function SourceTab({ slug }: { slug: string }) {
   const [query, setQuery] = useState('');
@@ -148,19 +148,35 @@ export default function SourceTab({ slug }: { slug: string }) {
             
             <div className="bg-slate-900/50 rounded-lg p-3 mt-auto">
               <p className="text-sm text-slate-200 font-medium mb-1">{item.pharmacy.name}</p>
-              
-              <div className="flex items-start gap-2 text-xs text-slate-400 mb-2">
-                <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-500" />
-                <span className="leading-tight">{item.pharmacy.address || item.pharmacy.state || 'Address hidden'}</span>
+              <div className="flex justify-between items-end gap-2 mt-2">
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-start gap-2 text-xs text-slate-400">
+                    <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-500" />
+                    <span className="leading-tight max-w-[200px]">{item.pharmacy.businessAddress || item.pharmacy.state || 'Address hidden'}</span>
+                  </div>
+                  
+                  <a 
+                    href={`tel:+${item.pharmacy.phoneNumber}`}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300"
+                  >
+                    <Phone className="w-3.5 h-3.5" /> 
+                    {item.pharmacy.phoneNumber ? `+${item.pharmacy.phoneNumber}` : 'Contact hidden'}
+                  </a>
+                </div>
+                
+                <button
+                  onClick={() => {
+                    // @ts-ignore
+                    const { ipcRenderer } = window.require('electron');
+                    const url = `https://www.pharmastackx.com/?view=confirmOrder&action=checkout&item=${encodeURIComponent(item.itemName)}&price=${item.price || 0}&seller=${encodeURIComponent(item.pharmacy.slug || item.pharmacy.name)}&buyer=${encodeURIComponent(slug)}`;
+                    ipcRenderer.send('open-checkout-window', url);
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-1.5 transition-colors shadow-lg shadow-emerald-900/20"
+                >
+                  <ShoppingCart className="w-3.5 h-3.5" />
+                  Get It
+                </button>
               </div>
-              
-              <a 
-                href={`tel:+${item.pharmacy.phoneNumber}`}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 mt-1"
-              >
-                <Phone className="w-3.5 h-3.5" /> 
-                {item.pharmacy.phoneNumber ? `+${item.pharmacy.phoneNumber}` : 'Contact hidden'}
-              </a>
             </div>
             
           </div>

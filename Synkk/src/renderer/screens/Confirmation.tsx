@@ -1,15 +1,53 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Check, X, ChevronLeft } from 'lucide-react';
+import { Check, X, ChevronLeft, Loader2 } from 'lucide-react';
 
 export default function Confirmation() {
   const navigate = useNavigate();
   const location = useLocation();
   const result = location.state?.result;
   const sampleData = result?.rawSample || [];
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleConfirm = async () => {
+    setIsSaving(true);
+    try {
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      await ipcRenderer.invoke('save-learned-system', {
+        posIdentifier: location.state?.pathOrUrl,
+        schemaMapping: result.schemaMapping,
+        initialPayloadText: location.state?.initialPayloadText
+      });
+
+      // Check if storefront is already fully configured (returning user re-pairing)
+      const store = await ipcRenderer.invoke('get-storefront-data');
+      if (store && store.slug && store.coordinates && !store.isGuest) {
+        // Already set up — go straight to dashboard
+        navigate('/done', { state: { slug: store.slug, name: store.name, coordinates: store.coordinates } });
+      } else if (store?.isGuest) {
+        navigate('/guest-auth');
+      } else {
+        navigate('/setup');
+      }
+    } catch (err) {
+      console.error(err);
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="w-full max-w-3xl px-6 flex flex-col items-center relative">
+      {isSaving && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/70 backdrop-blur-md rounded-2xl">
+          <Loader2 className="w-12 h-12 text-emerald-400 animate-spin mb-4" />
+          <h3 className="text-xl font-bold text-white mb-2">Processing your inventory...</h3>
+          <p className="text-slate-400 text-sm text-center max-w-sm">
+            Synkk is extracting and structuring all your products. This may take a moment.
+          </p>
+        </div>
+      )}
+
       <button 
         onClick={() => navigate('/')}
         className="absolute -top-12 left-0 text-slate-400 hover:text-white flex items-center gap-1 transition-colors text-sm font-medium"
@@ -37,8 +75,8 @@ export default function Confirmation() {
               <tr key={idx} className="hover:bg-slate-700/30 transition-colors">
                 {result?.schemaMapping?.nameCol && <td className="px-6 py-4 text-white font-medium max-w-[200px] truncate" title={item[result.schemaMapping.nameCol]}>{item[result.schemaMapping.nameCol] || 'N/A'}</td>}
                 {result?.schemaMapping?.brandCol && <td className="px-6 py-4 text-slate-300 max-w-[150px] truncate" title={item[result.schemaMapping.brandCol]}>{item[result.schemaMapping.brandCol] || 'N/A'}</td>}
-                {result?.schemaMapping?.qtyCol && <td className="px-6 py-4 text-slate-300 max-w-[100px] truncate">{item[result.schemaMapping.qtyCol] || 0}</td>}
-                {result?.schemaMapping?.priceCol && <td className="px-6 py-4 text-emerald-400 font-medium max-w-[100px] truncate">{item[result.schemaMapping.priceCol] || 0}</td>}
+                {result?.schemaMapping?.qtyCol && <td className="px-6 py-4 text-slate-300 max-w-[100px] truncate">{Number(String(item[result.schemaMapping.qtyCol] || 0).replace(/[^\d.]/g, ''))}</td>}
+                {result?.schemaMapping?.priceCol && <td className="px-6 py-4 text-emerald-400 font-medium max-w-[100px] truncate">{Number(String(item[result.schemaMapping.priceCol] || 0).replace(/[^\d.]/g, ''))}</td>}
                 {result?.schemaMapping?.imageCol && <td className="px-6 py-4 text-slate-300">
                   {item[result.schemaMapping.imageCol] ? (
                     <img src={item[result.schemaMapping.imageCol]} alt="Product" className="w-10 h-10 object-cover rounded" onError={(e) => (e.currentTarget.style.display = 'none')} />
@@ -57,21 +95,9 @@ export default function Confirmation() {
 
       <div className="flex gap-4 w-full max-w-md">
         <button 
-          onClick={async () => {
-            // @ts-ignore
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('save-learned-system', {
-              posIdentifier: location.state?.pathOrUrl,
-              schemaMapping: result.schemaMapping
-            });
-            const store = await ipcRenderer.invoke('get-storefront-data');
-            if (store?.isGuest) {
-              navigate('/guest-auth');
-            } else {
-              navigate('/setup');
-            }
-          }}
-          className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors"
+          onClick={handleConfirm}
+          disabled={isSaving}
+          className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
         >
           <Check className="w-5 h-5" />
           Yes, continue
@@ -87,3 +113,4 @@ export default function Confirmation() {
     </div>
   );
 }
+
