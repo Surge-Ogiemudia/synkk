@@ -86,7 +86,7 @@ function classifyError(rawMessage: string): SyncError {
   if (msg.includes('timed out') || msg.includes('extraction timed out')) {
     return {
       code: 'WEB_TIMEOUT',
-      userMessage: 'The Web POS page took too long to load (over 30 seconds). Please check your internet speed, or try logging in manually via the Source tab.',
+      userMessage: 'The Web POS page took too long to load (over 120 seconds). Please check your internet speed, or re-map your Web POS via the Source tab.',
       severity: 'warning'
     };
   }
@@ -125,6 +125,7 @@ function classifyError(rawMessage: string): SyncError {
 // ── Main Sync Entry Point ─────────────────────────────────────────────
 export async function executeSync(): Promise<{ status: string; error?: SyncError }> {
   console.log('Executing sync cycle...');
+  broadcastSyncProgress(10, 'Initializing sync cycle...');
   const pairingData = (getStore('pairing') || { name: 'Unknown Pharmacy' }) as any;
   
   try {
@@ -164,6 +165,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
 
     // 3. Normal online extraction
     console.log('Extracting latest inventory...');
+    broadcastSyncProgress(30, 'Extracting latest inventory...');
     let rawInventory: any[] = [];
     let syncTier: number = 1;
     
@@ -175,8 +177,9 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
         rawInventory = result.items;
         syncTier = result.tier;
       } catch (err: any) {
-        if (err.message === 'ALL_TIERS_FAILED') {
-          console.log('All automated tiers failed. Triggering CSV fallback...');
+        if (err.message.includes('ALL_TIERS_FAILED')) {
+          const reason = err.message.split('ALL_TIERS_FAILED:')[1]?.trim() || 'Unknown error';
+          console.log(`All automated tiers failed (${reason}). Triggering CSV fallback...`);
           await new Promise((resolvePrompt, rejectPrompt) => {
             const { Notification, dialog, BrowserWindow } = require('electron');
             if (Notification.isSupported()) {
@@ -222,7 +225,17 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
 
     const lastSyncSnapshot = (getStore('lastSyncSnapshot') || []) as any[];
     
+    // SAFETY GUARD: Never let a partial sync nuke good data
+    if (lastSyncSnapshot.length >= 10 && rawInventory.length > 0 && rawInventory.length < lastSyncSnapshot.length * 0.5) {
+      console.log(`SAFETY GUARD: Sync returned ${rawInventory.length} items but last snapshot had ${lastSyncSnapshot.length}. Refusing to push incomplete data.`);
+      broadcastSyncProgress(100, `Sync skipped: only found ${rawInventory.length} items vs ${lastSyncSnapshot.length} expected. Keeping existing data safe.`);
+      updateTrayStatus('green', `${lastSyncSnapshot.length} items safe`, lastSyncSnapshot.length);
+      setStore('lastSyncTime', new Date().toISOString());
+      return { status: 'skipped' };
+    }
+
     // Smart Diffing Logic
+    broadcastSyncProgress(80, 'Calculating smart diffs...');
     const updates: any[] = [];
     const deletes: string[] = [];
     
@@ -262,6 +275,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
 
     try {
       // Show intermediate status since AI classification can take 5-10 seconds
+      broadcastSyncProgress(90, 'Pushing updates to cloud...');
       updateTrayStatus('yellow', 'Classifying inventory...', updates.length + deletes.length);
       
       // In production, this would be an actual API endpoint with auth tokens
@@ -286,6 +300,8 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
       setStore('lastSyncTime', new Date().toISOString());
     } catch (pushError: any) {
       console.error('Failed to push to cloud API:', pushError.message);
+      broadcastSyncProgress(90, `Cloud Push Failed: ${pushError.message}`);
+      await new Promise(r => setTimeout(r, 5000));
       throw new Error(`Cloud Push Failed: ${pushError.message}`);
     }
     
@@ -294,6 +310,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     
     // Clear any previous sync errors on success
     setStore('lastSyncError', null);
+    broadcastSyncProgress(100, 'Complete');
     broadcastSyncSuccess();
     
     return { status: 'success' };
@@ -321,6 +338,20 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     );
     
     throw error;
+  }
+}
+
+// ── Broadcast sync status to all renderer windows ─────────────────────
+export function broadcastSyncProgress(progress: number, message: string) {
+  try {
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('sync-progress', { progress, message });
+      }
+    }
+  } catch (e) {
+    console.error('Failed to broadcast sync progress:', e);
   }
 }
 
@@ -412,6 +443,7 @@ async function extractFromLocalDB(dbPath: string, schema: any): Promise<any[]> {
 // ── Web POS Extraction with Auto-Relogin ──────────────────────────────
 async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any[], tier: number }> {
   return new Promise(async (resolve, reject) => {
+    broadcastSyncProgress(40, 'Starting background Web POS extraction...');
     const hiddenWindow = new BrowserWindow({
       show: false,
       webPreferences: {
@@ -420,25 +452,85 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
       }
     });
 
-    let networkPayload: any = null;
-    let networkUrl: string | null = null;
-    
-    // Tier 3 Setup: Attach Debugger before loading to intercept API calls
+    // 🔴 GUARANTEED TIMEOUT: Start the 300s death-clock BEFORE any async awaits can hang the executor
+    const timeoutId = setTimeout(() => {
+      if (!hiddenWindow.isDestroyed()) {
+        hiddenWindow.destroy();
+        reject(new Error('Web POS extraction timed out after 300 seconds.'));
+      }
+    }, 300000);
+
+    // Override resolve/reject to clear the timeout so it doesn't fire after success
+    const originalResolve = resolve;
+    resolve = (val) => { clearTimeout(timeoutId); originalResolve(val); };
+    const originalReject = reject;
+    reject = (err) => { clearTimeout(timeoutId); originalReject(err); };
+
     try {
-      hiddenWindow.webContents.debugger.attach('1.3');
-      await hiddenWindow.webContents.debugger.sendCommand('Network.enable');
+      // Tier 1: Zero-Scrape First Sync — use pre-processed items from onboarding
+      const pairingData = getStore('pairing') as any;
+      if (pairingData && pairingData.initialSyncItems && pairingData.initialSyncItems.length > 0) {
+        const items = pairingData.initialSyncItems;
+        console.log(`Tier 1: Using ${items.length} pre-processed items from onboarding. No AI needed.`);
+        delete pairingData.initialSyncItems;
+        setStore('pairing', pairingData);
+        broadcastSyncProgress(75, `Tier 1: Loaded ${items.length} items from onboarding. Skipping browser entirely.`);
+        hiddenWindow.destroy();
+        return resolve({ items, tier: 1 });
+      }
+
+      async function processWithVercelAI(payloadText: string, tier: number) {
+        const response = await fetch('https://www.pharmastackx.com/api/synkk-ai/extract-web-pos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pageText: payloadText, schema })
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          const errMsg = err.error || err.message || response.statusText;
+          throw new Error(`Vercel Backend Error (${response.status}): ${errMsg}`);
+        }
+        const data = await response.json();
+        return { items: data, tier };
+      }
+
+      broadcastSyncProgress(42, 'Attaching debugger to background window...');
+      let networkPayload: any = null;
+      let networkUrl: string | null = null;
+      
+      if (hiddenWindow.isDestroyed()) return;
+
+      broadcastSyncProgress(44, `Navigating to POS URL: ${url}`);
+      hiddenWindow.loadURL(url).catch((err: any) => {
+        if (hiddenWindow.isDestroyed()) return;
+        reject(new Error(`Failed to load POS URL: ${err.message}`));
+      });
+
+      // Tier 3 Setup: Attach Debugger IMMEDIATELY after loadURL begins
+      try {
+        hiddenWindow.webContents.debugger.attach('1.3');
+        const sendCmd = hiddenWindow.webContents.debugger.sendCommand('Network.enable');
+        const timeoutCmd = new Promise((_, r) => setTimeout(() => r(new Error('Debugger command timeout')), 3000));
+        await Promise.race([sendCmd, timeoutCmd]);
+        
       hiddenWindow.webContents.debugger.on('message', (event, method, params) => {
         if (method === 'Network.responseReceived') {
           if (params.response.mimeType?.includes('json')) {
             hiddenWindow.webContents.debugger.sendCommand('Network.getResponseBody', { requestId: params.requestId })
               .then(res => {
-                if (res.body && res.body.length > 5000) { // Naive check for "large" inventory payload
+                if (res.body && res.body.length > 2000) { // Catch medium-to-large JSON payloads
                   try {
                     const json = JSON.parse(res.body);
-                    // Check if it's an array or has a data array
-                    if (Array.isArray(json) || (json.data && Array.isArray(json.data))) {
-                      networkPayload = json;
+                    if (Array.isArray(json)) {
+                      if (!networkPayload) networkPayload = [];
+                      networkPayload = [...networkPayload, ...json];
                       networkUrl = params.response.url;
+                      console.log(`[Tier 3] Intercepted JSON Array. Total cached items: ${networkPayload.length}`);
+                    } else if (json.data && Array.isArray(json.data)) {
+                      if (!networkPayload) networkPayload = [];
+                      networkPayload = [...networkPayload, ...json.data];
+                      networkUrl = params.response.url;
+                      console.log(`[Tier 3] Intercepted JSON .data Array. Total cached items: ${networkPayload.length}`);
                     }
                   } catch (e) {}
                 }
@@ -446,14 +538,13 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
           }
         }
       });
-    } catch (err) {
-      console.error('Debugger attach failed:', err);
-    }
+      } catch (err) {
+        console.error('Debugger attach failed:', err);
+      }
 
-    hiddenWindow.loadURL(url);
-
-    hiddenWindow.webContents.on('did-finish-load', async () => {
+      hiddenWindow.webContents.once('dom-ready', async () => {
       try {
+        broadcastSyncProgress(46, 'Page loaded. Checking for login screen...');
         console.log('Hidden window loaded URL, checking for login screen...');
 
         // ── Step 1: Detect if we landed on a login page ──
@@ -472,6 +563,7 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
         const isLoginPage = await hiddenWindow.webContents.executeJavaScript(loginDetectCode);
 
         if (isLoginPage) {
+          broadcastSyncProgress(48, 'Login screen detected. Attempting auto-relogin...');
           console.log('Login screen detected! Attempting auto-relogin...');
           
           // ── Step 2: Retrieve stored credentials ──
@@ -553,11 +645,12 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
           }
 
           // ── Step 5: Wait for page to reload after login ──
+          broadcastSyncProgress(52, 'Login submitted. Waiting for POS dashboard to load...');
           console.log(`Login form submitted (${loginResult}). Waiting for page to reload...`);
           
           await new Promise<void>((res) => {
             let resolved = false;
-            hiddenWindow.webContents.on('did-finish-load', () => {
+            hiddenWindow.webContents.once('dom-ready', () => {
               if (!resolved) { resolved = true; res(); }
             });
             // If nothing loads in 15s, continue anyway
@@ -572,6 +665,7 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
             return;
           }
 
+          broadcastSyncProgress(54, 'Auto-relogin successful! Ensuring correct URL...');
           console.log('Auto-relogin successful! Proceeding with data extraction...');
 
           // Navigate back to the target URL if the login redirection took us elsewhere (like a generic dashboard)
@@ -581,7 +675,7 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
             await hiddenWindow.loadURL(url);
             await new Promise<void>((res) => {
               let resolved = false;
-              hiddenWindow.webContents.on('did-finish-load', () => {
+              hiddenWindow.webContents.once('dom-ready', () => {
                 if (!resolved) { resolved = true; res(); }
               });
               setTimeout(() => { if (!resolved) { resolved = true; res(); } }, 15000);
@@ -593,8 +687,11 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
         }
 
         // ── Normal extraction flow ──
+        broadcastSyncProgress(56, 'Waiting 8s for inventory data to fully render...');
         console.log('Waiting for SPAs to render inventory data...');
         await new Promise(r => setTimeout(r, 8000));
+
+        broadcastSyncProgress(58, 'Checking for direct API endpoints (Tier 2/3)...');
 
         // ── 4-TIER FALLBACK STRATEGY ──
         // Note on Execution Order vs Tier Numbering:
@@ -605,29 +702,22 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
         // because it is much faster. If Tier 2 fails or has no endpoint, it falls back 
         // to Tier 3, then Tier 4 (DOM Scraping), and finally Tier 5 (CSV Upload).
 
-        async function processWithVercelAI(payloadText: string, tier: number) {
-          const response = await fetch('https://www.pharmastackx.com/api/synkk-ai/extract-web-pos', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pageText: payloadText, schema })
-          });
-          if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(`Vercel Backend returned ${response.status}: ${err.error || response.statusText}`);
-          }
-          const data = await response.json();
-          return { items: data, tier };
-        }
-
         // Tier 2: Session Hijacking
         try {
           const discoveredApiEndpoint = getStore('discoveredApiEndpoint') as string | null;
           if (discoveredApiEndpoint) {
             console.log('Tier 2: Discovered API endpoint found. Attempting direct fetch...');
+            
+            // Aggressively hijack pagination parameters to fetch everything
+            const hackedEndpoint = discoveredApiEndpoint
+              .replace(/limit=\d+/, 'limit=2000')
+              .replace(/per_page=\d+/, 'per_page=2000')
+              .replace(/take=\d+/, 'take=2000');
+              
             const tier2Code = `
               (async () => {
                 try {
-                  const res = await fetch("${discoveredApiEndpoint}");
+                  const res = await fetch("${hackedEndpoint}");
                   if (res.ok) return await res.json();
                   return null;
                 } catch(e) { return null; }
@@ -650,76 +740,165 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
            console.log('Tier 3: Intercepted valid JSON payload. Saving endpoint for Tier 2...');
            setStore('discoveredApiEndpoint', networkUrl);
            try {
-             const result = await processWithVercelAI(JSON.stringify(networkPayload), 3);
+             let aggregatedResults: any[] = [];
+             let payloadArray = Array.isArray(networkPayload) ? networkPayload : [networkPayload];
+             if (payloadArray.length > 5000) payloadArray = payloadArray.slice(0, 5000); // hard cap
+
+             const chunkSize = 30;
+             const chunks = [];
+             for (let i = 0; i < payloadArray.length; i += chunkSize) {
+                chunks.push(payloadArray.slice(i, i + chunkSize));
+             }
+             
+             let processed = 0;
+             const promises = chunks.map(async (chunk) => {
+                const result = await processWithVercelAI(JSON.stringify(chunk), 3);
+                processed++;
+                broadcastSyncProgress(60 + Math.floor((processed / chunks.length) * 15), `Tier 3 AI Chunking: Processing batch ${processed}/${chunks.length}...`);
+                return result.items || result;
+             });
+             
+             const chunkResults = await Promise.all(promises);
+             for (const res of chunkResults) {
+                aggregatedResults = [...aggregatedResults, ...(Array.isArray(res) ? res : [])];
+             }
+             
              hiddenWindow.destroy();
-             return resolve(result);
+             return resolve({ items: aggregatedResults, tier: 3 });
            } catch(e) {
              console.log('Tier 3 AI processing failed:', e);
            }
         }
 
         // Tier 4: DOM Scraping
+        broadcastSyncProgress(59, 'Expanding rows and scraping DOM...');
         console.log('Tier 4: Expanding rows and scraping DOM...');
         const expandAndScrollCode = `
           (async () => {
-            const selects = document.querySelectorAll('select');
-            for (const select of selects) {
-              const options = Array.from(select.options);
-              const hasLargeNumbers = options.some(o => parseInt(o.value) >= 50 || parseInt(o.text) >= 50 || o.text.toLowerCase().includes('all'));
-              const hasSmallNumbers = options.some(o => parseInt(o.value) === 10 || parseInt(o.value) === 20 || parseInt(o.text) === 10);
-              if (hasLargeNumbers && hasSmallNumbers) {
-                let maxOpt = options[0];
-                let maxVal = -1;
-                for (const o of options) {
-                  if (o.text.toLowerCase().includes('all')) { maxOpt = o; break; }
-                  const val = parseInt(o.value) || parseInt(o.text) || 0;
-                  if (val > maxVal) { maxVal = val; maxOpt = o; }
+            let allText = document.body.innerText + '\\n\\n';
+            
+            // 1. Smart Dropdown Hunter (Combobox heuristic)
+            const dropdowns = Array.from(document.querySelectorAll('select, div[role="combobox"], div[role="button"], span[role="button"], div[class*="select"], div[class*="dropdown"]'));
+            for (const el of dropdowns) {
+              const text = (el.textContent || '').toLowerCase();
+              if (text.includes('rows') || text.includes('per page') || text.includes('view') || text.match(/^(10|20|25|50)$/)) {
+                if (el.tagName.toLowerCase() === 'select') {
+                  const options = Array.from(el.options);
+                  let maxOpt = options[0];
+                  let maxVal = -1;
+                  for (const o of options) {
+                    if (o.text.toLowerCase().includes('all')) { maxOpt = o; break; }
+                    const val = parseInt(o.value) || parseInt(o.text) || 0;
+                    if (val > maxVal) { maxVal = val; maxOpt = o; }
+                  }
+                  if (maxVal > 25 || maxOpt.text.toLowerCase().includes('all')) {
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set;
+                    if (nativeInputValueSetter) nativeInputValueSetter.call(el, maxOpt.value);
+                    else el.value = maxOpt.value;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    await new Promise(r => setTimeout(r, 3000));
+                  }
+                } else {
+                  el.click();
+                  await new Promise(r => setTimeout(r, 1000));
+                  const menuItems = Array.from(document.querySelectorAll('li, div[role="option"], span[class*="option"], div[class*="item"]'));
+                  let maxOpt = null;
+                  let maxVal = -1;
+                  for (const item of menuItems) {
+                    const txt = (item.textContent || '').toLowerCase().trim();
+                    if (txt === 'all') { maxOpt = item; break; }
+                    const val = parseInt(txt);
+                    if (val > maxVal && val >= 50 && val <= 5000) { maxVal = val; maxOpt = item; }
+                  }
+                  if (maxOpt) {
+                    maxOpt.click();
+                    await new Promise(r => setTimeout(r, 4000));
+                  } else {
+                    el.click(); // close if not found
+                  }
                 }
-                select.value = maxOpt.value;
-                select.dispatchEvent(new Event('change', { bubbles: true }));
-                await new Promise(r => setTimeout(r, 3000)); 
+                allText = document.body.innerText + '\\n\\n';
               }
             }
-            await new Promise((resolve) => {
-              let totalHeight = 0, distance = 600, scrolls = 0;
-              let timer = setInterval(() => {
-                let scrollHeight = document.documentElement.scrollHeight || document.body.scrollHeight;
-                window.scrollBy(0, distance);
-                totalHeight += distance; scrolls++;
-                if (totalHeight >= scrollHeight || scrolls >= 15) { clearInterval(timer); resolve(null); }
-              }, 500);
-            });
+
+            // 2. Auto-scroll to bottom (for window AND scrollable containers) - Loop it for infinite scroll
+            for (let s = 0; s < 8; s++) {
+              const scrollables = Array.from(document.querySelectorAll('*')).filter(el => {
+                const style = window.getComputedStyle(el);
+                return (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
+              });
+              for (const el of scrollables) { el.scrollBy(0, 50000); }
+              window.scrollBy(0, 50000);
+              await new Promise(r => setTimeout(r, 1500));
+              allText += document.body.innerText + '\\n\\n'; // Accumulate just in case items disappear from DOM
+            }
+
+            // 3. Try to click "Next" pagination buttons and accumulate text (Max 25 pages)
+            for (let i = 0; i < 25; i++) {
+              const nextBtns = Array.from(document.querySelectorAll('button, a, div[role="button"], span, li')).filter(b => {
+                const txt = (b.textContent || '').toLowerCase().trim();
+                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                const title = (b.getAttribute('title') || '').toLowerCase();
+                const className = (b.className || '').toString().toLowerCase();
+                
+                return txt === 'next' || txt === 'next page' || txt === '>' || txt === '›' || txt === '»' || txt.includes('next') ||
+                       aria === 'next' || aria.includes('next page') || title.includes('next') ||
+                       className.includes('next-page') || className.includes('pagination-next');
+              });
+              
+              // Find first valid, enabled next button
+              const validBtn = nextBtns.find(b => {
+                // @ts-ignore
+                if (b.disabled) return false;
+                if (b.classList.contains('disabled')) return false;
+                if (b.getAttribute('aria-disabled') === 'true') return false;
+                // Avoid invisible buttons
+                const rect = b.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              });
+              
+              if (validBtn) {
+                // @ts-ignore
+                validBtn.click();
+                await new Promise(r => setTimeout(r, 3500)); // wait for page to render
+                allText += document.body.innerText + '\\n\\n';
+              } else {
+                break; // No more next buttons
+              }
+            }
+
+            return allText;
           })();
         `;
-        await hiddenWindow.webContents.executeJavaScript(expandAndScrollCode);
-        await new Promise(r => setTimeout(r, 3000));
-        
-        const pageText = await hiddenWindow.webContents.executeJavaScript(`document.body.innerText || document.body.textContent`);
+        const pageText = await hiddenWindow.webContents.executeJavaScript(expandAndScrollCode);
+        await new Promise(r => setTimeout(r, 1000));
         
         try {
+          broadcastSyncProgress(60, 'AI Semantic Extraction in progress...');
           const result = await processWithVercelAI(pageText, 4);
           hiddenWindow.destroy();
           return resolve(result);
-        } catch (t4Err) {
-          console.log('Tier 4 failed. Triggering CSV Fallback.');
+        } catch (t4Err: any) {
+          console.log('Tier 4 failed:', t4Err.message);
+          broadcastSyncProgress(60, `AI Failed: ${t4Err.message}`);
+          await new Promise(r => setTimeout(r, 5000)); // Show error for 5s
           hiddenWindow.destroy();
           
-          // Trigger ALL_TIERS_FAILED error
-          reject(new Error('ALL_TIERS_FAILED'));
+          // Trigger ALL_TIERS_FAILED error but keep the detailed reason
+          reject(new Error(`ALL_TIERS_FAILED: ${t4Err.message}`));
         }
 
       } catch (e: any) {
         hiddenWindow.destroy();
-        reject(e.message === 'ALL_TIERS_FAILED' ? e : new Error(`Semantic Web Extraction Failed: ${e.message}`));
+        reject(e.message.includes('ALL_TIERS_FAILED') ? e : new Error(`Semantic Web Extraction Failed: ${e.message}`));
       }
     });
-
-    // Timeout if page takes forever to load
-    setTimeout(() => {
+    } catch (criticalErr: any) {
       if (!hiddenWindow.isDestroyed()) {
         hiddenWindow.destroy();
-        reject(new Error('Web POS extraction timed out after 30 seconds.'));
       }
-    }, 30000);
+      reject(criticalErr);
+    }
   });
 }

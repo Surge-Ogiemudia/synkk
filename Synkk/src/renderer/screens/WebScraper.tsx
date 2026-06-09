@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, ScanText, Loader2, FileDown, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, ScanText, Loader2, FileDown, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 export default function WebScraper() {
   const navigate = useNavigate();
@@ -10,6 +10,10 @@ export default function WebScraper() {
   const webviewRef = useRef<any>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  
+  const [accumulatedText, setAccumulatedText] = useState('');
+  const [scanCount, setScanCount] = useState(0);
+  const [showScanMoreDialog, setShowScanMoreDialog] = useState(false);
 
   useEffect(() => {
     if (!url) {
@@ -148,30 +152,47 @@ export default function WebScraper() {
       // ── Attempt to expand pagination & auto-scroll ──
       const expandAndScrollCode = `
         (async () => {
-          // 1. Try to find and change "Rows per page" native selects
-          const selects = document.querySelectorAll('select');
-          for (const select of selects) {
-            const options = Array.from(select.options);
-            const hasLargeNumbers = options.some(o => parseInt(o.value) >= 50 || parseInt(o.text) >= 50 || o.text.toLowerCase().includes('all'));
-            const hasSmallNumbers = options.some(o => parseInt(o.value) === 10 || parseInt(o.value) === 20 || parseInt(o.text) === 10);
-            
-            if (hasLargeNumbers && hasSmallNumbers) {
-              let maxOpt = options[0];
-              let maxVal = -1;
-              for (const o of options) {
-                if (o.text.toLowerCase().includes('all')) {
-                  maxOpt = o;
-                  break;
+          // 1. Smart Dropdown Hunter (Combobox heuristic)
+          const dropdowns = Array.from(document.querySelectorAll('select, div[role="combobox"], div[role="button"], span[role="button"], div[class*="select"], div[class*="dropdown"]'));
+          for (const el of dropdowns) {
+            const text = (el.textContent || '').toLowerCase();
+            if (text.includes('rows') || text.includes('per page') || text.includes('view') || text.match(/^(10|20|25|50)$/)) {
+              if (el.tagName.toLowerCase() === 'select') {
+                const options = Array.from(el.options);
+                let maxOpt = options[0];
+                let maxVal = -1;
+                for (const o of options) {
+                  if (o.text.toLowerCase().includes('all')) { maxOpt = o; break; }
+                  const val = parseInt(o.value) || parseInt(o.text) || 0;
+                  if (val > maxVal) { maxVal = val; maxOpt = o; }
                 }
-                const val = parseInt(o.value) || parseInt(o.text) || 0;
-                if (val > maxVal) {
-                  maxVal = val;
-                  maxOpt = o;
+                if (maxVal > 25 || maxOpt.text.toLowerCase().includes('all')) {
+                  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set;
+                  if (nativeInputValueSetter) nativeInputValueSetter.call(el, maxOpt.value);
+                  else el.value = maxOpt.value;
+                  el.dispatchEvent(new Event('input', { bubbles: true }));
+                  el.dispatchEvent(new Event('change', { bubbles: true }));
+                  await new Promise(r => setTimeout(r, 3000));
+                }
+              } else {
+                el.click();
+                await new Promise(r => setTimeout(r, 1000));
+                const menuItems = Array.from(document.querySelectorAll('li, div[role="option"], span[class*="option"], div[class*="item"]'));
+                let maxOpt = null;
+                let maxVal = -1;
+                for (const item of menuItems) {
+                  const txt = (item.textContent || '').toLowerCase().trim();
+                  if (txt === 'all') { maxOpt = item; break; }
+                  const val = parseInt(txt);
+                  if (val > maxVal && val >= 50 && val <= 5000) { maxVal = val; maxOpt = item; }
+                }
+                if (maxOpt) {
+                  maxOpt.click();
+                  await new Promise(r => setTimeout(r, 4000));
+                } else {
+                  el.click(); // close if not found
                 }
               }
-              select.value = maxOpt.value;
-              select.dispatchEvent(new Event('change', { bubbles: true }));
-              await new Promise(r => setTimeout(r, 3000));
             }
           }
 
@@ -203,22 +224,37 @@ export default function WebScraper() {
       // Execute JS inside the webview to extract all text content
       const code = `document.body.innerText || document.body.textContent`;
       const pageText = await webviewRef.current.executeJavaScript(code);
-      const actualUrl = webviewRef.current.getURL() || url;
       
-      // Send the text to the main process for Semantic Parsing via Synkk
+      setAccumulatedText(prev => prev + '\\n\\n' + pageText);
+      setScanCount(c => c + 1);
+      setShowScanMoreDialog(true);
+      setIsScanning(false);
+      
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg('Failed to scan page: ' + err.message);
+      setIsScanning(false);
+    }
+  };
+
+  const handleFinishScan = async () => {
+    setShowScanMoreDialog(false);
+    setIsScanning(true);
+    try {
+      const actualUrl = webviewRef.current.getURL() || url;
       // @ts-ignore
       const { ipcRenderer } = window.require('electron');
-      const response = await ipcRenderer.invoke('semantic-scrape', { text: pageText, url: actualUrl });
+      const response = await ipcRenderer.invoke('semantic-scrape', { text: accumulatedText, url: actualUrl });
       
       if (response.success && response.result) {
-        navigate('/confirmation', { state: { result: response.result, pathOrUrl: actualUrl } });
+        navigate('/confirmation', { state: { result: response.result, pathOrUrl: actualUrl, initialPayloadText: accumulatedText } });
       } else {
-        setErrorMsg(response.error || 'Synkk could not identify inventory data on this page. Please make sure you are on the correct page.');
+        setErrorMsg(response.error || 'Synkk could not identify inventory data on these pages. Please make sure you are on the correct page.');
         setIsScanning(false);
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMsg('Failed to scan page: ' + err.message);
+      setErrorMsg('Failed to process aggregated pages: ' + err.message);
       setIsScanning(false);
     }
   };
@@ -239,7 +275,7 @@ export default function WebScraper() {
               <ScanText className="w-5 h-5 text-cyan-400" />
               Connect Web POS
             </h2>
-            <p className="text-slate-400 text-xs">Please log in and navigate to your inventory/products page.</p>
+            <p className="text-slate-400 text-xs">Navigate to your inventory and maximize items per view (e.g. 500).</p>
           </div>
         </div>
         
@@ -267,6 +303,34 @@ export default function WebScraper() {
           </button>
         </div>
       </div>
+
+      {showScanMoreDialog && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+              <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+              Page {scanCount} Scanned!
+            </h3>
+            <p className="text-slate-400 mb-6">
+              We've captured the inventory data from this page. If you have more items, navigate to the next page and scan again.
+            </p>
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={() => setShowScanMoreDialog(false)}
+                className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-medium border border-slate-700 transition-colors"
+              >
+                Let me navigate to the next page
+              </button>
+              <button 
+                onClick={handleFinishScan}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-medium shadow-lg hover:shadow-emerald-500/25 transition-all"
+              >
+                No, all done! Process {scanCount} page{scanCount > 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4 mb-4 flex items-start gap-3">
         <div className="bg-cyan-500/20 p-2 rounded-lg mt-0.5">

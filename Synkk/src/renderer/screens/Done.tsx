@@ -23,17 +23,25 @@ export default function Done() {
   const [syncError, setSyncError] = React.useState<{ code: string; userMessage: string; severity: string; timestamp?: string } | null>(null);
   const [isRetrying, setIsRetrying] = React.useState(false);
   const [isSyncing, setIsSyncing] = React.useState(false);
+  const [syncProgress, setSyncProgress] = React.useState<{ percent: number, message: string } | null>(null);
   const [notifyOutOfStock, setNotifyOutOfStock] = React.useState(true);
   const [alarmDuration, setAlarmDuration] = React.useState('infinite');
   const [pendingAlert, setPendingAlert] = React.useState<any>(null);
+  const [isGlobalRefreshing, setIsGlobalRefreshing] = React.useState(false);
 
   useEffect(() => {
     // Save storefront data to backend
     // @ts-ignore
     const { ipcRenderer } = window.require('electron');
-    ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates }).then(() => {
-      // Trigger an immediate initial sync to push products to the cloud instantly
-      ipcRenderer.invoke('trigger-sync');
+    ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates }).then(async () => {
+      // Only trigger initial sync if we just came from setup (have location state)
+      // and there are pre-processed items waiting. Don't blindly re-sync on every visit.
+      if (location.state?.slug) {
+        const pairing = await ipcRenderer.invoke('get-pairing-data');
+        if (pairing?.initialSyncItems?.length > 0) {
+          ipcRenderer.invoke('trigger-sync');
+        }
+      }
     });
 
     // Initialize global Pusher natively in the browser process where WebSockets work flawlessly
@@ -128,13 +136,19 @@ export default function Done() {
     const interval = setInterval(loadSettings, 60000);
     
     // Listen for real-time sync error/success events from the main process
+    ipcRenderer.on('sync-progress', (_event: any, data: { progress: number, message: string }) => {
+      setSyncProgress({ percent: data.progress, message: data.message });
+    });
     ipcRenderer.on('sync-error', (_event: any, error: any) => {
       setSyncError(error);
       setIsRetrying(false);
+      setSyncProgress(null);
     });
     ipcRenderer.on('sync-success', () => {
       setSyncError(null);
       setIsRetrying(false);
+      setSyncProgress({ percent: 100, message: 'Complete' });
+      setTimeout(() => setSyncProgress(null), 2000);
     });
     
     // Listen for push notifications to open Orders tab
@@ -260,8 +274,21 @@ export default function Done() {
         </div>
       )}
 
-      {/* Tab Navigation */}
-      <div className="flex w-full max-w-md mx-auto gap-2 bg-slate-900 rounded-xl p-2 mb-6 border border-slate-800">
+      {/* Tab Navigation Wrapper */}
+      <div className="w-full max-w-md mx-auto mb-6 flex flex-col items-end gap-2">
+        <button 
+          onClick={() => {
+            setIsGlobalRefreshing(true);
+            window.dispatchEvent(new Event('refresh-orders-list'));
+            window.dispatchEvent(new Event('refresh-leads-list'));
+            setTimeout(() => setIsGlobalRefreshing(false), 1000);
+          }}
+          className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-emerald-400 transition-colors bg-slate-800/50 hover:bg-slate-800 py-1.5 px-3 rounded-lg border border-slate-700 hover:border-emerald-500/50 shadow-sm"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isGlobalRefreshing ? 'animate-spin' : ''}`} /> 
+          Refresh Data
+        </button>
+        <div className="flex w-full gap-2 bg-slate-900 rounded-xl p-2 border border-slate-800">
         <button 
           onClick={() => setActiveTab('dashboard')}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
@@ -289,6 +316,7 @@ export default function Done() {
         >
           <Search className="w-4 h-4" /> Source
         </button>
+        </div>
       </div>
 
       {activeTab === 'dashboard' ? (
@@ -324,6 +352,7 @@ export default function Done() {
               <button
                 onClick={async () => {
                   setIsRetrying(true);
+                  setSyncProgress({ percent: 5, message: 'Waking up engine...' });
                   // @ts-ignore
                   const { ipcRenderer } = window.require('electron');
                   const result = await ipcRenderer.invoke('trigger-sync');
@@ -384,8 +413,13 @@ export default function Done() {
                           return; // User canceled the file dialog
                         }
                       }
-                      await ipcRenderer.invoke('trigger-sync');
-                      setIsSyncing(false);
+                      try {
+                        await ipcRenderer.invoke('trigger-sync');
+                      } catch (err) {
+                        console.error('Manual sync failed', err);
+                      } finally {
+                        setIsSyncing(false);
+                      }
                     }}
                     disabled={isSyncing}
                     className="text-xs text-emerald-500 hover:text-white font-medium px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -394,6 +428,21 @@ export default function Done() {
                     {isSyncing ? 'Syncing...' : 'Run Manual Sync'}
                   </button>
                 </div>
+                
+                {syncProgress && (
+                  <div className="mt-4 pt-4 border-t border-slate-800">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs text-slate-400">{syncProgress.message}</span>
+                      <span className="text-xs text-emerald-500 font-medium">{syncProgress.percent}%</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-emerald-500 transition-all duration-500 ease-out rounded-full"
+                        style={{ width: `${syncProgress.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

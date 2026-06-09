@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowRight, Lock, User, Phone, Mail, Check } from 'lucide-react';
+import { ArrowRight, Lock, User, Phone, Mail, Check, Eye, EyeOff } from 'lucide-react';
 
 export default function GuestAuth() {
   const navigate = useNavigate();
@@ -13,6 +13,7 @@ export default function GuestAuth() {
   const [phone, setPhone] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleCheckEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +55,7 @@ export default function GuestAuth() {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
         await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: data.name || 'My Pharmacy', coordinates: null, isNewUser: false });
+        await ipcRenderer.invoke('save-psx-credentials', { email, password });
         navigate('/setup');
       } else {
         setAuthError(data.error || 'Login failed.');
@@ -82,6 +84,7 @@ export default function GuestAuth() {
         isNewUser: true,
         pendingRegistration: { email: email.toLowerCase(), password, phone }
       });
+      await ipcRenderer.invoke('save-psx-credentials', { email: email.toLowerCase(), password });
       navigate('/setup');
     } catch (err) {
       setAuthError('An error occurred. Please try again.');
@@ -138,9 +141,12 @@ export default function GuestAuth() {
                 <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                  <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                  <input type={showPassword ? "text" : "password"} required value={password} onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-12 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
                     placeholder="••••••••" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 z-50 p-1 text-slate-400 hover:text-white transition-colors cursor-pointer bg-transparent border-none outline-none flex items-center justify-center">
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
               </div>
               <button type="submit" disabled={authLoading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors mt-2 disabled:opacity-50">
@@ -180,9 +186,12 @@ export default function GuestAuth() {
                 <label className="block text-sm font-medium text-slate-300 mb-2">Create Password</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                  <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                  <input type={showPassword ? "text" : "password"} required value={password} onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-12 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
                     placeholder="••••••••" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 z-50 p-1 text-slate-400 hover:text-white transition-colors cursor-pointer bg-transparent border-none outline-none flex items-center justify-center">
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
               </div>
 
