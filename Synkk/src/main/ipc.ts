@@ -1,4 +1,4 @@
-import { ipcMain, dialog, safeStorage, BrowserWindow, app } from 'electron';
+import { ipcMain, dialog, safeStorage, BrowserWindow, app, session } from 'electron';
 import { analyzePOSSystem } from '../brain/analyser';
 import { executeSync } from './sync';
 import { getStore, setStore } from '../store/local';
@@ -563,14 +563,42 @@ export function setupIpc() {
     }
   });
 
-  ipcMain.handle('save-web-pos-credentials', async (event, { username, password }: { username: string; password: string }) => {
+  ipcMain.handle('save-web-pos-credentials', async (event, { username, password, url }: { username: string; password: string, url?: string }) => {
     try {
       if (!safeStorage.isEncryptionAvailable()) {
         return { success: false, error: 'OS-level encryption is not available on this machine.' };
       }
+      
+      // 1. Encrypt and store locally for auto-relogin
       const encUser = safeStorage.encryptString(username).toString('base64');
       const encPass = safeStorage.encryptString(password).toString('base64');
-      setStore('webPosCredentials', { encUser, encPass });
+      setStore('webPosCredentials', { encUser, encPass, url });
+      
+      // 2. Set default sync frequency to 1440 (Daily)
+      setStore('syncFrequency', '1440');
+
+      // 3. Send encrypted backup to PSX (Application-Level Master Encryption)
+      try {
+        const storefront = getStore('storefront') as any;
+        const slug = storefront?.slug;
+
+        if (slug) {
+          const baseUrl = process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : 'https://www.pharmastackx.com';
+          const response = await fetch(`${baseUrl}/api/admin/pharmacy/web-pos-backup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug, username, password, url: url || '' })
+          });
+          if (!response.ok) {
+            console.error('Failed to backup Web POS credentials to PSX Cloud', await response.text());
+          } else {
+            console.log('Successfully backed up Web POS credentials to PSX Cloud via HTTPS.');
+          }
+        }
+      } catch (backupErr) {
+        console.error('Network error during Web POS backup:', backupErr);
+      }
+
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -690,5 +718,41 @@ export function setupIpc() {
     });
 
     checkoutWin.loadURL(url);
+  });
+
+  ipcMain.handle('logout-completely', async () => {
+    try {
+      // 1. Delete all credentials from the local database
+      setStore('webPosCredentials', null);
+      setStore('psxCredentials', null);
+      setStore('storefront', null);
+      setStore('pairing', null);
+
+      // 2. Clear Electron's Session data (Cookies, Local Storage, IndexedDB)
+      await session.defaultSession.clearStorageData();
+      
+      // 3. Stop the sync scheduler loop if running
+      const { stopScheduler } = require('./sync');
+      stopScheduler();
+
+      // 4. Reset the system tray
+      const { updateTrayStatus } = require('./tray');
+      updateTrayStatus('green', 'Never', 0);
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Logout error:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('dev-kill-session', async () => {
+    try {
+      await session.defaultSession.clearStorageData();
+      return { success: true };
+    } catch (err: any) {
+      console.error('Kill session error:', err);
+      return { success: false, error: err.message };
+    }
   });
 }

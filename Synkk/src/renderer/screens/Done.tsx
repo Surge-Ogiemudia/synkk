@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
-import { CheckCircle2, ExternalLink, Activity, Package, Search, Download, AlertTriangle, RefreshCw, WifiOff } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { CheckCircle2, ExternalLink, Activity, Package, Search, Download, AlertTriangle, RefreshCw, WifiOff, LogOut } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import QRCode from 'react-qr-code';
 import Pusher from 'pusher-js';
@@ -13,6 +13,7 @@ let currentChannel: any = null;
 
 export default function Done() {
   const location = useLocation();
+  const navigate = useNavigate();
   const slug = location.state?.slug || 'my-pharmacy';
   const name = location.state?.name || 'My Pharmacy';
   const coordinates = location.state?.coordinates || null;
@@ -23,6 +24,14 @@ export default function Done() {
   const [syncError, setSyncError] = React.useState<{ code: string; userMessage: string; severity: string; timestamp?: string } | null>(null);
   const [isRetrying, setIsRetrying] = React.useState(false);
   const [isSyncing, setIsSyncing] = React.useState(false);
+  const [streamLogs, setStreamLogs] = React.useState<string[]>([]);
+  const streamEndRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (streamEndRef.current) {
+      streamEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [streamLogs]);
   const [syncProgress, setSyncProgress] = React.useState<{ percent: number, message: string } | null>(null);
   const [notifyOutOfStock, setNotifyOutOfStock] = React.useState(true);
   const [alarmDuration, setAlarmDuration] = React.useState('infinite');
@@ -138,6 +147,13 @@ export default function Done() {
     // Listen for real-time sync error/success events from the main process
     ipcRenderer.on('sync-progress', (_event: any, data: { progress: number, message: string }) => {
       setSyncProgress({ percent: data.progress, message: data.message });
+      if (data.progress === 10) setStreamLogs([]); // Clear logs on new sync
+    });
+    ipcRenderer.on('sync-stream', (_event: any, logLine: string) => {
+      setStreamLogs(prev => {
+        const newLogs = [...prev, logLine];
+        return newLogs.length > 200 ? newLogs.slice(newLogs.length - 200) : newLogs;
+      });
     });
     ipcRenderer.on('sync-error', (_event: any, error: any) => {
       setSyncError(error);
@@ -148,7 +164,10 @@ export default function Done() {
       setSyncError(null);
       setIsRetrying(false);
       setSyncProgress({ percent: 100, message: 'Complete' });
-      setTimeout(() => setSyncProgress(null), 2000);
+      setTimeout(() => {
+        setSyncProgress(null);
+        setStreamLogs([]);
+      }, 4000);
     });
     
     // Listen for push notifications to open Orders tab
@@ -169,6 +188,7 @@ export default function Done() {
       ipcRenderer.removeAllListeners('refresh-orders-list');
       ipcRenderer.removeAllListeners('refresh-leads-list');
       ipcRenderer.removeAllListeners('show-notification-modal');
+      ipcRenderer.removeAllListeners('sync-stream');
       ipcRenderer.removeAllListeners('sync-error');
       ipcRenderer.removeAllListeners('sync-success');
     };
@@ -276,18 +296,36 @@ export default function Done() {
 
       {/* Tab Navigation Wrapper */}
       <div className="w-full max-w-md mx-auto mb-6 flex flex-col items-end gap-2">
-        <button 
-          onClick={() => {
-            setIsGlobalRefreshing(true);
-            window.dispatchEvent(new Event('refresh-orders-list'));
-            window.dispatchEvent(new Event('refresh-leads-list'));
-            setTimeout(() => setIsGlobalRefreshing(false), 1000);
-          }}
-          className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-emerald-400 transition-colors bg-slate-800/50 hover:bg-slate-800 py-1.5 px-3 rounded-lg border border-slate-700 hover:border-emerald-500/50 shadow-sm"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isGlobalRefreshing ? 'animate-spin' : ''}`} /> 
-          Refresh Data
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => {
+              setIsGlobalRefreshing(true);
+              window.dispatchEvent(new Event('refresh-orders-list'));
+              window.dispatchEvent(new Event('refresh-leads-list'));
+              setTimeout(() => setIsGlobalRefreshing(false), 1000);
+            }}
+            className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-emerald-400 transition-colors bg-slate-800/50 hover:bg-slate-800 py-1.5 px-3 rounded-lg border border-slate-700 hover:border-emerald-500/50 shadow-sm"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isGlobalRefreshing ? 'animate-spin' : ''}`} /> 
+            Refresh Data
+          </button>
+
+          <button 
+            onClick={async () => {
+              const confirm = window.confirm("Are you sure you want to log out? This will completely wipe all local POS and Pharmacy data on this computer.");
+              if (confirm) {
+                // @ts-ignore
+                const { ipcRenderer } = window.require('electron');
+                await ipcRenderer.invoke('logout-completely');
+                navigate('/', { replace: true });
+              }
+            }}
+            className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-red-400 transition-colors bg-slate-800/50 hover:bg-red-950/50 py-1.5 px-3 rounded-lg border border-slate-700 hover:border-red-500/50 shadow-sm"
+          >
+            <LogOut className="w-3.5 h-3.5" /> 
+            Log Out
+          </button>
+        </div>
         <div className="flex w-full gap-2 bg-slate-900 rounded-xl p-2 border border-slate-800">
         <button 
           onClick={() => setActiveTab('dashboard')}
@@ -351,14 +389,12 @@ export default function Done() {
               </div>
               <button
                 onClick={async () => {
+                  setSyncError(null);
                   setIsRetrying(true);
                   setSyncProgress({ percent: 5, message: 'Waking up engine...' });
                   // @ts-ignore
                   const { ipcRenderer } = window.require('electron');
-                  const result = await ipcRenderer.invoke('trigger-sync');
-                  if (result.success) {
-                    setSyncError(null);
-                  }
+                  await ipcRenderer.invoke('trigger-sync');
                   setIsRetrying(false);
                 }}
                 disabled={isRetrying}
@@ -374,7 +410,7 @@ export default function Done() {
             
             {/* Left Column - Sync Settings */}
             <div className="flex flex-col w-full order-2 md:order-1 pt-0 md:pt-14">
-              <div className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 mb-6">
+              <div className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 mb-6 relative">
                 <h3 className="text-sm font-semibold text-slate-300 mb-4">Sync Settings</h3>
                 
                 <div className="flex items-center justify-between mb-4">
@@ -400,47 +436,73 @@ export default function Done() {
 
                 <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-2">
                   <span className="text-sm text-slate-400">Force Sync</span>
-                  <button
-                    onClick={async () => {
-                      setIsSyncing(true);
-                      // @ts-ignore
-                      const { ipcRenderer } = window.require('electron');
-                      const pairingData = await ipcRenderer.invoke('get-pairing-data');
-                      if (pairingData?.posIdentifier?.endsWith('.csv')) {
-                        const newPath = await ipcRenderer.invoke('update-csv-path');
-                        if (!newPath) {
-                          setIsSyncing(false);
-                          return; // User canceled the file dialog
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        setSyncError(null);
+                        setIsSyncing(true);
+                        // @ts-ignore
+                        const { ipcRenderer } = window.require('electron');
+                        const pairingData = await ipcRenderer.invoke('get-pairing-data');
+                        if (pairingData?.posIdentifier?.endsWith('.csv')) {
+                          const newPath = await ipcRenderer.invoke('update-csv-path');
+                          if (!newPath) {
+                            setIsSyncing(false);
+                            return; // User canceled the file dialog
+                          }
                         }
-                      }
-                      try {
-                        await ipcRenderer.invoke('trigger-sync');
-                      } catch (err) {
-                        console.error('Manual sync failed', err);
-                      } finally {
-                        setIsSyncing(false);
-                      }
-                    }}
-                    disabled={isSyncing}
-                    className="text-xs text-emerald-500 hover:text-white font-medium px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                    {isSyncing ? 'Syncing...' : 'Run Manual Sync'}
-                  </button>
+                        try {
+                          await ipcRenderer.invoke('trigger-sync');
+                        } catch (err) {
+                          console.error('Manual sync failed', err);
+                        } finally {
+                          setIsSyncing(false);
+                        }
+                      }}
+                      disabled={isSyncing}
+                      className="text-xs text-emerald-500 hover:text-white font-medium px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                      {isSyncing ? 'Syncing...' : 'Run Manual Sync'}
+                    </button>
+                  </div>
                 </div>
                 
+                
+                {/* Absolute Floating Overlay to prevent layout shift */}
                 {syncProgress && (
-                  <div className="mt-4 pt-4 border-t border-slate-800">
+                  <div className="absolute top-[calc(100%+8px)] left-0 w-full z-50 bg-slate-900/95 border border-emerald-900/50 shadow-2xl backdrop-blur-md rounded-xl p-4 animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs text-slate-400">{syncProgress.message}</span>
-                      <span className="text-xs text-emerald-500 font-medium">{syncProgress.percent}%</span>
+                      <span className="text-xs text-slate-300 font-medium">{syncProgress.message}</span>
+                      <span className="text-xs text-emerald-400 font-bold">{syncProgress.percent}%</span>
                     </div>
-                    <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden shadow-inner">
                       <div 
-                        className="h-full bg-emerald-500 transition-all duration-500 ease-out rounded-full"
+                        className="h-full bg-emerald-500 transition-all duration-500 ease-out rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)]"
                         style={{ width: `${syncProgress.percent}%` }}
                       />
                     </div>
+
+                    {/* Blazing Fast Stream Visualizer */}
+                    {streamLogs.length > 0 && (
+                      <div className="mt-4 bg-black/80 border border-emerald-900/40 rounded-lg p-2.5 h-32 overflow-y-auto text-[10px] font-mono text-emerald-400/90 shadow-inner scrollbar-hide relative">
+                        <div className="sticky top-0 bg-black/90 px-1 pb-1.5 mb-1.5 border-b border-emerald-900/50 flex justify-between z-10">
+                          <span className="text-emerald-400 font-semibold text-[9px] uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                            Live Extraction
+                          </span>
+                          <span className="text-emerald-600 font-bold">[{streamLogs.length} logs]</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          {streamLogs.map((log, idx) => (
+                            <div key={idx} className="truncate tracking-tight leading-relaxed opacity-90 hover:opacity-100 transition-opacity">
+                              <span className="text-emerald-700/60 mr-1.5">{'>'}</span>{log}
+                            </div>
+                          ))}
+                          <div ref={streamEndRef} />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
