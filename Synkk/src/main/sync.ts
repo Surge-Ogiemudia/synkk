@@ -123,8 +123,18 @@ function classifyError(rawMessage: string): SyncError {
 }
 
 // ── Main Sync Entry Point ─────────────────────────────────────────────
+let isSyncEngineRunning = false;
+
 export async function executeSync(): Promise<{ status: string; error?: SyncError }> {
+  if (isSyncEngineRunning) {
+    console.log('Sync is already running. Ignoring overlapping request.');
+    broadcastSyncStream('[SYSTEM] A sync is already in progress. Ignoring overlapping request.');
+    return { status: 'already_running' };
+  }
+  
+  isSyncEngineRunning = true;
   console.log('Executing sync cycle...');
+  broadcastSyncError(null); // Clear previous errors
   broadcastSyncProgress(10, 'Initializing sync cycle...');
   const pairingData = (getStore('pairing') || { name: 'Unknown Pharmacy' }) as any;
   
@@ -166,6 +176,51 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     // 3. Normal online extraction
     console.log('Extracting latest inventory...');
     broadcastSyncProgress(30, 'Extracting latest inventory...');
+    
+    // Set up progressive streaming logic
+    const lastSyncSnapshot = (getStore('lastSyncSnapshot') || []) as any[];
+    const lastMap = new Map((lastSyncSnapshot as any[]).map(item => [item.name, item]));
+    const storefrontData = (getStore('storefront') || { slug: 'unknown', name: 'Unknown' }) as any;
+    const axios = require('axios');
+    let totalStreamedUpdates = 0;
+    
+    const streamBatchToCloud = async (batch: any[]) => {
+      const streamUpdates: any[] = [];
+      for (const currentItem of batch) {
+        const lastItem = lastMap.get(currentItem.name);
+        if (!lastItem) {
+          streamUpdates.push(currentItem);
+        } else if (lastItem.qty !== currentItem.qty || lastItem.price !== currentItem.price) {
+          streamUpdates.push(currentItem);
+        }
+      }
+      
+      if (streamUpdates.length > 0) {
+        totalStreamedUpdates += streamUpdates.length;
+        broadcastSyncStream(`[STREAM] Progressively pushed ${streamUpdates.length} verified items to storefront...`);
+        
+        try {
+          await axios.post('https://www.pharmastackx.com/api/sync', {
+            pharmacy_slug: storefrontData.slug,
+            pharmacy_name: storefrontData.name,
+            coordinates: storefrontData.coordinates,
+            updates: streamUpdates,
+            deletes: [],
+            sync_tier: 2,
+            app_version: app.getVersion()
+          }, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
+            },
+            timeout: 15000
+          });
+        } catch (e: any) {
+          console.error('Stream batch push failed:', e.message);
+        }
+      }
+    };
+
     let rawInventory: any[] = [];
     let syncTier: number = 1;
     
@@ -173,7 +228,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
       // Branch 2: Web POS (Hidden Browser Window)
       console.log('Target is Web POS. Spawning background browser...');
       try {
-        const result = await extractFromWebPOS(pairingData.posIdentifier, pairingData.schemaMapping);
+        const result = await extractFromWebPOS(pairingData.posIdentifier, pairingData.schemaMapping, streamBatchToCloud);
         rawInventory = result.items;
         syncTier = result.tier;
       } catch (err: any) {
@@ -223,60 +278,62 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
       syncTier = 1;
     }
 
-    const lastSyncSnapshot = (getStore('lastSyncSnapshot') || []) as any[];
-    
-    // SAFETY GUARD: Never let a partial sync nuke good data
-    if (lastSyncSnapshot.length >= 10 && rawInventory.length > 0 && rawInventory.length < lastSyncSnapshot.length * 0.5) {
-      console.log(`SAFETY GUARD: Sync returned ${rawInventory.length} items but last snapshot had ${lastSyncSnapshot.length}. Refusing to push incomplete data.`);
-      broadcastSyncProgress(100, `Sync skipped: only found ${rawInventory.length} items vs ${lastSyncSnapshot.length} expected. Keeping existing data safe.`);
-      updateTrayStatus('green', `${lastSyncSnapshot.length} items safe`, lastSyncSnapshot.length);
-      setStore('lastSyncTime', new Date().toISOString());
-      return { status: 'skipped' };
-    }
+    // Safety Guard removed by User Request:
+    // Missing items from the POS are now treated as "Out of Stock" (qty = 0)
+    // rather than being blocked or hard-deleted.
 
-    // Smart Diffing Logic
     broadcastSyncProgress(80, 'Calculating smart diffs...');
     const updates: any[] = [];
     const deletes: string[] = [];
     
     // Convert current inventory to a map for fast lookup
     const currentMap = new Map(rawInventory.map(item => [item.name, item]));
-    const lastMap = new Map((lastSyncSnapshot as any[]).map(item => [item.name, item]));
 
-    // Find new items or items with changed qty/price
-    for (const [name, currentItem] of currentMap.entries()) {
-      const lastItem = lastMap.get(name);
-      if (!lastItem) {
-        updates.push(currentItem);
-      } else if (lastItem.qty !== currentItem.qty || lastItem.price !== currentItem.price) {
-        updates.push(currentItem);
+    // If we already streamed the updates progressively, we don't need to double-post them.
+    // We only calculate final updates if streaming wasn't used (e.g. Local SQLite branch).
+    if (totalStreamedUpdates === 0) {
+      for (const [name, currentItem] of currentMap.entries()) {
+        const lastItem = lastMap.get(name);
+        if (!lastItem) {
+          updates.push(currentItem);
+        } else if (lastItem.qty !== currentItem.qty || lastItem.price !== currentItem.price) {
+          updates.push(currentItem);
+        }
       }
     }
 
-    // Find deleted items (in last map, but not in current map)
-    for (const [name] of lastMap.entries()) {
+    // Find missing items (in last map, but not in current map)
+    // Instead of deleting them, we soft-delete them by setting qty = 0 (Out of Stock)
+    let softDeletedCount = 0;
+    for (const [name, lastItem] of lastMap.entries()) {
       if (!currentMap.has(name)) {
-        deletes.push(name);
+        if (lastItem.qty !== 0) { // Only update if it's not already 0
+          updates.push({ ...lastItem, qty: 0 });
+          softDeletedCount++;
+        }
       }
     }
 
-    console.log(`Smart Diff: ${updates.length} updates, ${deletes.length} deletes.`);
+    if (totalStreamedUpdates > 0) {
+      console.log(`Final Sweep: ${softDeletedCount} items marked Out of Stock. (Streamed ${totalStreamedUpdates} updates earlier).`);
+    } else {
+      console.log(`Smart Diff: ${updates.length} updates (including ${softDeletedCount} items marked Out of Stock), ${deletes.length} hard deletes.`);
+    }
 
-    const axios = require('axios');
-    const storefrontData = (getStore('storefront') || { slug: 'unknown', name: 'Unknown' }) as any;
     const payload = {
       pharmacy_slug: storefrontData.slug,
       pharmacy_name: storefrontData.name,
       coordinates: storefrontData.coordinates,
       updates,
       deletes,
-      sync_tier: syncTier
+      sync_tier: syncTier,
+      app_version: app.getVersion()
     };
 
     try {
       // Show intermediate status since AI classification can take 5-10 seconds
       broadcastSyncProgress(90, 'Pushing updates to cloud...');
-      updateTrayStatus('yellow', 'Classifying inventory...', updates.length + deletes.length);
+      updateTrayStatus('yellow', 'Classifying inventory...', updates.length + deletes.length + totalStreamedUpdates);
       
       // In production, this would be an actual API endpoint with auth tokens
       // For the MVP, we are POSTing to a placeholder relay route
@@ -306,7 +363,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     }
     
     // 5. Update tray status
-    updateTrayStatus('green', new Date().toLocaleTimeString(), updates.length + deletes.length);
+    updateTrayStatus('green', new Date().toLocaleTimeString(), updates.length + deletes.length + totalStreamedUpdates);
     
     // Clear any previous sync errors on success
     setStore('lastSyncError', null);
@@ -337,13 +394,17 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
       `Error Code: ${syncError.code}`
     );
     
+    
     throw error;
+  } finally {
+    isSyncEngineRunning = false;
   }
 }
 
 // ── Broadcast sync status to all renderer windows ─────────────────────
 export function broadcastSyncProgress(progress: number, message: string) {
   try {
+    console.log(`[UI PROGRESS ${progress}%] ${message}`);
     const windows = BrowserWindow.getAllWindows();
     for (const win of windows) {
       if (!win.isDestroyed()) {
@@ -352,6 +413,20 @@ export function broadcastSyncProgress(progress: number, message: string) {
     }
   } catch (e) {
     console.error('Failed to broadcast sync progress:', e);
+  }
+}
+
+export function broadcastSyncStream(log: string) {
+  try {
+    console.log(`[UI STREAM] ${log.replace(/\\n/g, '\n')}`);
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('sync-stream', log);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to broadcast sync stream:', e);
   }
 }
 
@@ -440,8 +515,8 @@ async function extractFromLocalDB(dbPath: string, schema: any): Promise<any[]> {
   }
 }
 
-// ── Web POS Extraction with Auto-Relogin ──────────────────────────────
-async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any[], tier: number }> {
+// ── Core Extraction: Web POS (Background Window) ─────────────────────
+async function extractFromWebPOS(url: string, schema: any, onBatchExtracted?: (batch: any[]) => Promise<void>): Promise<{ items: any[], tier: number }> {
   return new Promise(async (resolve, reject) => {
     broadcastSyncProgress(40, 'Starting background Web POS extraction...');
     const hiddenWindow = new BrowserWindow({
@@ -452,13 +527,16 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
       }
     });
 
-    // 🔴 GUARANTEED TIMEOUT: Start the 300s death-clock BEFORE any async awaits can hang the executor
+    let isCancelled = false;
+
+    // 🔴 GUARANTEED TIMEOUT: 2 Hours (7,200,000 ms) instead of 5 minutes.
     const timeoutId = setTimeout(() => {
+      isCancelled = true; // Signal all internal loops to die immediately
       if (!hiddenWindow.isDestroyed()) {
         hiddenWindow.destroy();
-        reject(new Error('Web POS extraction timed out after 300 seconds.'));
+        reject(new Error('Web POS extraction timed out after 2 hours.'));
       }
-    }, 300000);
+    }, 7200000);
 
     // Override resolve/reject to clear the timeout so it doesn't fire after success
     const originalResolve = resolve;
@@ -479,11 +557,11 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
         return resolve({ items, tier: 1 });
       }
 
-      async function processWithVercelAI(payloadText: string, tier: number) {
+      async function processWithVercelAI(payloadText: string, tier: number, customSchema?: any) {
         const response = await fetch('https://www.pharmastackx.com/api/synkk-ai/extract-web-pos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pageText: payloadText, schema })
+          body: JSON.stringify({ pageText: payloadText, schema: customSchema || schema })
         });
         if (!response.ok) {
           const err = await response.json().catch(() => ({}));
@@ -702,33 +780,257 @@ async function extractFromWebPOS(url: string, schema: any): Promise<{ items: any
         // because it is much faster. If Tier 2 fails or has no endpoint, it falls back 
         // to Tier 3, then Tier 4 (DOM Scraping), and finally Tier 5 (CSV Upload).
 
-        // Tier 2: Session Hijacking
+        // Tier 2: Paginated API Loop Hijack (The "God Mode" Approach)
         try {
           const discoveredApiEndpoint = getStore('discoveredApiEndpoint') as string | null;
           if (discoveredApiEndpoint) {
-            console.log('Tier 2: Discovered API endpoint found. Attempting direct fetch...');
+            broadcastSyncProgress(60, `Analyzing JSON API signature...`);
+            console.log('Tier 2: Discovered API endpoint found. Attempting paginated fetch loop...');
             
-            // Aggressively hijack pagination parameters to fetch everything
-            const hackedEndpoint = discoveredApiEndpoint
-              .replace(/limit=\d+/, 'limit=2000')
-              .replace(/per_page=\d+/, 'per_page=2000')
-              .replace(/take=\d+/, 'take=2000');
+            let page = 1;
+            let totalExtracted = 0;
+            let allRawItems: any[] = [];
+            let lastPageString = '';
+            
+            while (page <= 100) { // Safety cap
+              if (isCancelled) return reject(new Error('Tier 2 aborted by global timeout'));
               
-            const tier2Code = `
-              (async () => {
+              let pagedEndpoint = discoveredApiEndpoint;
+              
+              // Smart URL pagination & limit mutation
+              if (page === 1) {
+                // Force massive limits on page 1 to try and grab everything at once
+                if (pagedEndpoint.includes('length=')) pagedEndpoint = pagedEndpoint.replace(/length=\d+/, 'length=2000');
+                if (pagedEndpoint.includes('limit=')) pagedEndpoint = pagedEndpoint.replace(/limit=\d+/, 'limit=2000');
+                if (pagedEndpoint.includes('per_page=')) pagedEndpoint = pagedEndpoint.replace(/per_page=\d+/, 'per_page=2000');
+                
+                const joiner = pagedEndpoint.includes('?') ? '&' : '?';
+                pagedEndpoint += `${joiner}limit=2000&per_page=2000&size=2000&take=2000`;
+              } else {
+                if (pagedEndpoint.includes('start=')) pagedEndpoint = pagedEndpoint.replace(/start=\d+/, `start=${(page-1)*25}`);
+                else if (pagedEndpoint.includes('page=')) pagedEndpoint = pagedEndpoint.replace(/page=\d+/, `page=${page}`);
+                else if (pagedEndpoint.includes('p=')) pagedEndpoint = pagedEndpoint.replace(/p=\d+/, `p=${page}`);
+                else if (pagedEndpoint.includes('offset=')) pagedEndpoint = pagedEndpoint.replace(/offset=\d+/, `offset=${(page-1)*25}`);
+                else if (pagedEndpoint.includes('skip=')) pagedEndpoint = pagedEndpoint.replace(/skip=\d+/, `skip=${(page-1)*25}`);
+                else pagedEndpoint += (pagedEndpoint.includes('?') ? '&' : '?') + `page=${page}&p=${page}&start=${(page-1)*25}`;
+              }
+
+              broadcastSyncProgress(Math.min(65 + page, 80), `Hijacking backend endpoint... Fetching Page ${page}`);
+              
+              const tier2Code = `
+                (async () => {
+                  try {
+                    let token = '';
+                    for (let i = 0; i < localStorage.length; i++) {
+                      const k = localStorage.key(i);
+                      if (k && k.toLowerCase().includes('token')) token = localStorage.getItem(k) || '';
+                    }
+                    if (!token) {
+                      for (let i = 0; i < sessionStorage.length; i++) {
+                        const k = sessionStorage.key(i);
+                        if (k && k.toLowerCase().includes('token')) token = sessionStorage.getItem(k) || '';
+                      }
+                    }
+                    if (token.startsWith('"')) token = JSON.parse(token);
+                    
+                    const headers = {
+                      'Accept': 'application/json',
+                      'X-Requested-With': 'XMLHttpRequest'
+                    };
+                    if (token) headers['Authorization'] = 'Bearer ' + token;
+                    
+                    const res = await fetch("${pagedEndpoint}", { headers });
+                    if (res.ok) return { success: true, data: await res.json() };
+                    return { success: false, error: 'HTTP ' + res.status + ' ' + res.statusText };
+                  } catch(e) { return { success: false, error: e.toString() }; }
+                })()
+              `;
+              
+              const tier2Result = await hiddenWindow.webContents.executeJavaScript(tier2Code);
+              if (!tier2Result || !tier2Result.success) break;
+              
+              let tier2Data = tier2Result.data;
+              let itemsArray = Array.isArray(tier2Data) ? tier2Data : (tier2Data.data || tier2Data.items || tier2Data.products || tier2Data.inventory || []);
+              
+              if (!Array.isArray(itemsArray) || itemsArray.length === 0) break;
+              
+              // BULLETPROOF DUPLICATE DETECTION (Prevents Infinite Loops)
+              const currentString = JSON.stringify(itemsArray);
+              if (currentString === lastPageString) {
+                console.log('Tier 2: API returned identical duplicate data for page ' + page + '. Breaking loop.');
+                break;
+              }
+              lastPageString = currentString;
+              
+              allRawItems.push(...itemsArray);
+              totalExtracted += itemsArray.length;
+              
+              for (const obj of itemsArray) {
+                let name = obj.name || obj.title || obj.product || obj.description || obj.product_name || obj.item_name || obj.drug_name || obj.drugName || obj.medicine || obj.medicine_name || obj.brandName || obj.genericName || 'Item';
+                if (typeof name === 'string') name = name.replace(/<[^>]*>?/gm, '').trim(); // Strip HTML from DataTables response
+                
+                let qty = obj.qty !== undefined ? obj.qty : (obj.quantity !== undefined ? obj.quantity : (obj.stock !== undefined ? obj.stock : (obj.current_stock !== undefined ? obj.current_stock : (obj.available !== undefined ? obj.available : (obj.quantity_on_hand !== undefined ? obj.quantity_on_hand : 0)))));
+                if (typeof qty === 'string') qty = qty.replace(/[^0-9.]/g, ''); // Extract just the numbers from "30.00 Pieces"
+                
+                broadcastSyncStream(`Extracted: ${name} -> Stock: ${qty}`);
+                await new Promise(r => setTimeout(r, 15));
+              }
+              
+              if (itemsArray.length < 5) break;
+              page++;
+            }
+            
+            if (allRawItems.length > 0) {
+              console.log('--- DEBUG: RAW API PAYLOAD OF FIRST ITEM ---');
+              console.log(JSON.stringify(allRawItems[0], null, 2));
+              console.log('--------------------------------------------');
+              
+              broadcastSyncStream(`\\n[DONE] Successfully extracted ${totalExtracted} total items across ${page - 1} pages.`);
+              console.log('Tier 2 successful! Total items:', totalExtracted);
+              broadcastSyncProgress(85, `Downloaded ${totalExtracted} total items. Structuring data locally...`);
+              
+              // Filter out completely inactive/deleted items first
+              const activeItems = allRawItems.filter(obj => 
+                obj.is_inactive !== 1 && 
+                obj.is_inactive !== true && 
+                obj.is_inactive !== '1' &&
+                obj.not_for_selling !== 1 && 
+                obj.not_for_selling !== true &&
+                obj.not_for_selling !== '1'
+              );
+              
+              broadcastSyncStream(`\\n[FILTER] Removed deleted/hidden records. Found ${activeItems.length} active storefront items out of ${totalExtracted} total.`);
+              broadcastSyncStream(`[STAGE 1] Fast Local Mapping of Name, Qty, and Price...\\n`);
+              
+              // Stage 1: Clean and map all items locally
+              let stage1Items: any[] = [];
+              for (const obj of activeItems) {
+                let name = obj.name || obj.title || obj.product || obj.description || obj.product_name || obj.item_name || obj.drug_name || obj.drugName || obj.medicine || obj.medicine_name || obj.brandName || obj.genericName || 'Item';
+                if (typeof name === 'string') name = name.replace(/<[^>]*>?/gm, '').trim();
+                
+                let qty = obj.qty !== undefined ? obj.qty : (obj.quantity !== undefined ? obj.quantity : (obj.stock !== undefined ? obj.stock : (obj.current_stock !== undefined ? obj.current_stock : (obj.available !== undefined ? obj.available : (obj.quantity_on_hand !== undefined ? obj.quantity_on_hand : 0)))));
+                if (typeof qty === 'string') qty = parseInt(qty.replace(/[^0-9.]/g, ''), 10) || 0;
+                else qty = Number(qty) || 0;
+                
+                let price = obj.price !== undefined ? obj.price : (obj.selling_price !== undefined ? obj.selling_price : (obj.retail_price !== undefined ? obj.retail_price : (obj.unit_price !== undefined ? obj.unit_price : (obj.amount !== undefined ? obj.amount : (obj.sales_price !== undefined ? obj.sales_price : (obj.rate !== undefined ? obj.rate : 0))))));
+                if (typeof price === 'string') price = parseFloat(price.replace(/<[^>]*>?/gm, '').replace(/[^0-9.]/g, '')) || 0;
+                else price = Number(price) || 0;
+                
+                stage1Items.push({ name, qty, price });
+              }
+              broadcastSyncStream(`\\n[STAGE 1 DONE] Identified ${stage1Items.length} valid structured items.`);
+              broadcastSyncStream(`[STAGE 2] Proceeding to Synkk AI Cloud Advanced Filtering...\\n`);
+              
+              // Load the AI Memory Cache
+              const aiCache = (getStore('aiCache') as Record<string, boolean>) || {};
+              let newUncachedItems: any[] = [];
+              let finalItems: any[] = [];
+              let streamBuffer: any[] = [];
+              
+              // Helper to progressively stream batches of 100 items directly to Supabase
+              const flushStreamBuffer = async (force = false) => {
+                if (onBatchExtracted && streamBuffer.length > 0 && (force || streamBuffer.length >= 100)) {
+                  try {
+                    await onBatchExtracted([...streamBuffer]);
+                    streamBuffer = [];
+                  } catch (e) {
+                    console.error('Failed to flush stream batch:', e);
+                  }
+                }
+              };
+              
+              // Fast-pass: Check cache first to avoid sending 5,000 items to AI every 15 minutes
+              for (const item of stage1Items) {
+                if (aiCache[item.name] === true) {
+                  // Known valid medicine
+                  finalItems.push(item);
+                  streamBuffer.push(item);
+                  await flushStreamBuffer();
+                } else if (aiCache[item.name] === false) {
+                  // Known grocery (dropped previously)
+                  continue; 
+                } else {
+                  // Completely new item, AI needs to analyze it
+                  newUncachedItems.push(item);
+                }
+              }
+              
+              if (newUncachedItems.length === 0) {
+                await flushStreamBuffer(true);
+                broadcastSyncStream(`[CACHE HIT] All items known! Skipped AI entirely. Safely extracted ${finalItems.length} medical items.`);
+                clearTimeout(timeoutId);
+                hiddenWindow.destroy();
+                return resolve({ items: finalItems, tier: 2 });
+              }
+              
+              broadcastSyncStream(`[AI] Analyzing ${newUncachedItems.length} new unrecognized items...`);
+              
+              // We use chunk size 5 to completely bypass the Vercel AI hard-coded 5-item truncation limit
+              const chunkSize = 5;
+              let chunksProcessed = 0;
+              const totalChunks = Math.ceil(newUncachedItems.length / chunkSize);
+              
+              // Custom prompt schema injected into Vercel AI to handle groceries perfectly
+              const groceryFilterSchema = {
+                instruction: "Analyze this array of pharmacy items. EXPLICITLY DROP and REMOVE any items that are pure groceries, beverages, or non-medical FMCG (e.g., milk, biscuit, coke). KEEP all medical items, supplements, devices, and items used concurrently for treating. VERY IMPORTANT: If you do not recognize an item or are unsure, you MUST KEEP IT. Do not drop unknown medicines."
+              };
+              
+              // ETA Constants
+              const AVG_SECONDS_PER_CHUNK = 2.0;
+              
+              for (let i = 0; i < newUncachedItems.length; i += chunkSize) {
+                const chunk = newUncachedItems.slice(i, i + chunkSize);
+                
+                // Calculate Mathematical ETA
+                const chunksRemaining = totalChunks - chunksProcessed;
+                const estimatedSeconds = chunksRemaining * AVG_SECONDS_PER_CHUNK;
+                const mins = Math.floor(estimatedSeconds / 60);
+                const secs = Math.floor(estimatedSeconds % 60);
+                const etaString = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                
+                broadcastSyncProgress(85 + Math.floor((chunksProcessed / totalChunks) * 10), `AI Filtering Batch ${chunksProcessed + 1}/${totalChunks}... (ETA: ${etaString})`);
+                
                 try {
-                  const res = await fetch("${hackedEndpoint}");
-                  if (res.ok) return await res.json();
-                  return null;
-                } catch(e) { return null; }
-              })()
-            `;
-            const tier2Data = await hiddenWindow.webContents.executeJavaScript(tier2Code);
-            if (tier2Data) {
-              console.log('Tier 2 successful!');
-              const result = await processWithVercelAI(JSON.stringify(tier2Data), 2);
+                  const chunkResult = await processWithVercelAI(JSON.stringify(chunk), 2, groceryFilterSchema);
+                  
+                  // Map returned items to know what the AI kept
+                  const keptNames = new Set((chunkResult?.items || []).map((v: any) => v.name));
+                  
+                  for (const rawItem of chunk) {
+                    if (keptNames.has(rawItem.name)) {
+                      aiCache[rawItem.name] = true; // Mark as medicine
+                      finalItems.push(rawItem);
+                      streamBuffer.push(rawItem);
+                      await flushStreamBuffer();
+                    } else {
+                      aiCache[rawItem.name] = false; // Mark as grocery
+                    }
+                  }
+                  broadcastSyncStream(`   ↳ AI Batch ${chunksProcessed + 1}/${totalChunks}: kept ${keptNames.size}/${chunk.length} items. (ETA: ${etaString})`);
+                } catch (err: any) {
+                  // Fallback: If AI fails, keep the items to be safe (do not drop valid medicines)
+                  for (const rawItem of chunk) {
+                    aiCache[rawItem.name] = true; // Assume medicine to prevent data loss
+                    finalItems.push(rawItem);
+                    streamBuffer.push(rawItem);
+                    await flushStreamBuffer();
+                  }
+                  broadcastSyncStream(`   ↳ AI Batch failed, safely keeping ${chunk.length} items to prevent data loss. (ETA: ${etaString})`);
+                  console.error('AI Chunk failed:', err);
+                }
+                chunksProcessed++;
+              }
+              
+              // Flush any remaining items in the buffer
+              await flushStreamBuffer(true);
+              
+              // Save the updated cache back to local storage
+              setStore('aiCache', aiCache);
+              
+              broadcastSyncStream(`\\n[DONE] Stage 2 Complete! Safely extracted ${finalItems.length} medical items.`);
+              
               hiddenWindow.destroy();
-              return resolve(result);
+              return resolve({ items: finalItems, tier: 2 });
             }
           }
         } catch (e) {

