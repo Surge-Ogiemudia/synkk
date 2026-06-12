@@ -1,6 +1,10 @@
 import { autoUpdater } from 'electron-updater';
 import { BrowserWindow } from 'electron';
 
+export function triggerUpdateCheck() {
+  return autoUpdater.checkForUpdatesAndNotify();
+}
+
 export function setupUpdater() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;

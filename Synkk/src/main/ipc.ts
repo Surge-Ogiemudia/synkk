@@ -8,7 +8,18 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { scanForPOS } from './scanner';
 
+import { triggerUpdateCheck } from './updater';
+
 export function setupIpc() {
+  ipcMain.handle('check-for-updates', async () => {
+    try {
+      await triggerUpdateCheck();
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('scan-local-pos', async () => {
     return await scanForPOS();
   });

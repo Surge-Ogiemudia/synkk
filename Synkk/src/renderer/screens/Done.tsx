@@ -37,6 +37,7 @@ export default function Done() {
   const [alarmDuration, setAlarmDuration] = React.useState('infinite');
   const [pendingAlert, setPendingAlert] = React.useState<any>(null);
   const [isGlobalRefreshing, setIsGlobalRefreshing] = React.useState(false);
+  const [updateStatus, setUpdateStatus] = React.useState<any>(null);
 
   useEffect(() => {
     // Save storefront data to backend
@@ -180,6 +181,10 @@ export default function Done() {
     ipcRenderer.on('show-notification-modal', (_e: any, alertData: any) => {
       setPendingAlert(alertData);
     });
+    
+    ipcRenderer.on('update-status', (_e: any, statusData: any) => {
+      setUpdateStatus(statusData);
+    });
 
     return () => {
       clearInterval(interval);
@@ -188,6 +193,7 @@ export default function Done() {
       ipcRenderer.removeAllListeners('refresh-orders-list');
       ipcRenderer.removeAllListeners('refresh-leads-list');
       ipcRenderer.removeAllListeners('show-notification-modal');
+      ipcRenderer.removeAllListeners('update-status');
       ipcRenderer.removeAllListeners('sync-stream');
       ipcRenderer.removeAllListeners('sync-error');
       ipcRenderer.removeAllListeners('sync-success');
@@ -464,6 +470,29 @@ export default function Done() {
                     >
                       {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
                       {isSyncing ? 'Syncing...' : 'Run Manual Sync'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-4">
+                  <span className="text-sm text-slate-400">App Update</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        // @ts-ignore
+                        const { ipcRenderer } = window.require('electron');
+                        await ipcRenderer.invoke('check-for-updates');
+                      }}
+                      disabled={updateStatus?.status === 'downloading'}
+                      className="text-xs text-blue-400 hover:text-white font-medium px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {updateStatus?.status === 'downloading' ? (
+                        <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> {updateStatus.percent}%</>
+                      ) : updateStatus?.status === 'ready' ? (
+                        <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Ready (Restart)</>
+                      ) : (
+                        <><Download className="w-3.5 h-3.5" /> Check Updates</>
+                      )}
                     </button>
                   </div>
                 </div>
