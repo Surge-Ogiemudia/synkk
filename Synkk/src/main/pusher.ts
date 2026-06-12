@@ -46,6 +46,15 @@ export function initializePusher(slug: string, mainWindow: any) {
     console.log(`[Pusher] Successfully connected and subscribed to ${channelName}!`);
   });
 
+  currentChannel.bind('slug-updated', (data: any) => {
+    console.log('[Pusher] Received slug-updated. Changing store slug to:', data.newSlug);
+    if (data.newSlug) {
+      const sf = getStore('storefront') as any || {};
+      sf.slug = data.newSlug;
+      setStore('storefront', sf);
+    }
+  });
+
   currentChannel.bind('new-order', (data: any) => {
     console.log('[Pusher] Received new order:', data);
     

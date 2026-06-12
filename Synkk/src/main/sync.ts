@@ -1,7 +1,7 @@
 import { getStore, setStore } from '../store/local';
 import { updateTrayStatus } from './tray';
 import { sendFailureAlertEmail } from './mailer';
-import { net, safeStorage, BrowserWindow } from 'electron';
+import { net, safeStorage, BrowserWindow, app } from 'electron';
 
 // ── Actionable Error Map ──────────────────────────────────────────────
 // Maps raw error signatures to human-readable solutions for the pharmacist.

@@ -1,7 +1,7 @@
 {
   "name": "synkk",
   "private": true,
-  "version": "1.1.4",
+  "version": "1.1.6",
   "author": "PharmaStackX",
   "description": "PharmaStackX Auto-Sync Client",
   "main": "dist-main/index.js",
