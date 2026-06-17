@@ -1,7 +1,99 @@
-import { getStore, setStore } from '../store/local';
+﻿import { getStore, setStore } from '../store/local';
 import { updateTrayStatus } from './tray';
 import { sendFailureAlertEmail } from './mailer';
 import { net, safeStorage, BrowserWindow, app } from 'electron';
+import { reportSessionExpired } from './remote-config';
+import { lookupKnownMethod, reportSuccessfulMethod, applyKnownMethod } from './collective-intelligence';
+import { startLiveBroadcast } from './live-broadcast';
+
+// ── Count Validation Types ────────────────────────────────────────────
+type CountResult =
+  | { status: 'verified'; total: number }
+  | { status: 'unverifiable'; reason: string };
+
+/**
+ * Parses a "Showing X of Y" or "Total: N" style string from DOM text.
+ * Used by Tier 4 (DOM Scrape) and Tier 4b (Visual Capture).
+ */
+export function parseTotalFromText(text: string): CountResult {
+  // Match patterns like: "Showing 1-20 of 847", "847 items", "Total: 847", "847 results"
+  const patterns = [
+    /showing\s+[\d,]+[-–]?[\d,]*\s+of\s+([\d,]+)/i,
+    /([\d,]+)\s+items?/i,
+    /total[:\s]+([\d,]+)/i,
+    /([\d,]+)\s+results?/i,
+    /([\d,]+)\s+records?/i,
+    /([\d,]+)\s+products?/i,
+    /([\d,]+)\s+entries?/i,
+    /of\s+([\d,]+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const total = parseInt(match[1].replace(/,/g, ''), 10);
+      if (!isNaN(total) && total > 0) {
+        return { status: 'verified', total };
+      }
+    }
+  }
+  return { status: 'unverifiable', reason: 'No total count text found in page content' };
+}
+
+/**
+ * Extracts the total item count from an API response envelope.
+ * Checks common field names: total, count, totalItems, meta.total, pagination.total
+ * Used by Tier 2 (API Hijack) and Tier 3 (Network Intercept).
+ */
+export function parseTotalFromApiResponse(responseData: any): CountResult {
+  if (!responseData || typeof responseData !== 'object') {
+    return { status: 'unverifiable', reason: 'Response is not an object' };
+  }
+  const candidates = [
+    responseData.total,
+    responseData.count,
+    responseData.totalItems,
+    responseData.total_items,
+    responseData.totalCount,
+    responseData.total_count,
+    responseData.meta?.total,
+    responseData.meta?.count,
+    responseData.pagination?.total,
+    responseData.pagination?.count,
+    responseData.recordsTotal, // DataTables convention
+    responseData.filteredTotal,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number' && candidate > 0) {
+      return { status: 'verified', total: candidate };
+    }
+    if (typeof candidate === 'string') {
+      const n = parseInt(candidate, 10);
+      if (!isNaN(n) && n > 0) return { status: 'verified', total: n };
+    }
+  }
+  return { status: 'unverifiable', reason: 'No recognised total field in API response envelope' };
+}
+
+/**
+ * Validates extracted item count against expected total.
+ * Returns true if the sync is complete, false if more pages need to be fetched.
+ */
+export function validateExtractedCount(
+  extracted: number,
+  countResult: CountResult,
+  tierLabel: string
+): boolean {
+  if (countResult.status === 'unverifiable') {
+    console.warn(`[CountValidation] ${tierLabel}: Total count UNVERIFIABLE — ${countResult.reason}. Blocking incomplete sync.`);
+    return false; // Force error to ensure we don't accidentally sync partial data
+  }
+  if (extracted >= countResult.total) {
+    console.log(`[CountValidation] ${tierLabel}: ✓ COMPLETE — ${extracted}/${countResult.total} items captured.`);
+    return true;
+  }
+  console.warn(`[CountValidation] ${tierLabel}: ⚠ INCOMPLETE — ${extracted}/${countResult.total} items captured. Retrying pagination...`);
+  return false;
+}
 
 // ── Actionable Error Map ──────────────────────────────────────────────
 // Maps raw error signatures to human-readable solutions for the pharmacist.
@@ -72,7 +164,7 @@ function classifyError(rawMessage: string): SyncError {
   if (msg.includes('auto-login failed') || msg.includes('login_screen_detected')) {
     return {
       code: 'SESSION_EXPIRED',
-      userMessage: 'Your Web POS session has expired and Synkk could not log back in automatically. Please open Synkk and reconnect via the Source tab.',
+      userMessage: 'Your Web POS session has expired and Synkk could not log back in automatically. Our team has been notified and will restore your sync shortly.',
       severity: 'critical'
     };
   }
@@ -215,6 +307,15 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
             },
             timeout: 15000
           });
+          
+          // CRITICAL: Update local map incrementally so autonomous retries or failed syncs 
+          // do not re-upload the same items in a subsequent loop!
+          for (const currentItem of streamUpdates) {
+            lastMap.set(currentItem.name, currentItem);
+          }
+          const { setStore } = require('./ipc');
+          setStore('lastSyncSnapshot', Array.from(lastMap.values()));
+          
         } catch (e: any) {
           console.error('Stream batch push failed:', e.message);
         }
@@ -227,54 +328,92 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     if (pairingData.posIdentifier && pairingData.posIdentifier.startsWith('http')) {
       // Branch 2: Web POS (Hidden Browser Window)
       console.log('Target is Web POS. Spawning background browser...');
-      try {
-        const result = await extractFromWebPOS(pairingData.posIdentifier, pairingData.schemaMapping, streamBatchToCloud);
-        rawInventory = result.items;
-        syncTier = result.tier;
-      } catch (err: any) {
-        if (err.message.includes('ALL_TIERS_FAILED')) {
-          const reason = err.message.split('ALL_TIERS_FAILED:')[1]?.trim() || 'Unknown error';
-          console.log(`All automated tiers failed (${reason}). Triggering CSV fallback...`);
-          await new Promise((resolvePrompt, rejectPrompt) => {
-            const { Notification, dialog, BrowserWindow } = require('electron');
-            if (Notification.isSupported()) {
-              const notif = new Notification({
-                title: 'Synkk Web POS Sync Failed',
-                body: 'All automated sync methods failed. Click here to manually upload your inventory CSV.'
-              });
-              notif.on('click', async () => {
-                const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-                const filePaths = dialog.showOpenDialogSync(win, {
-                  title: 'Select Inventory CSV',
-                  filters: [{ name: 'CSV', extensions: ['csv'] }],
-                  properties: ['openFile']
-                });
-                if (filePaths && filePaths.length > 0) {
-                  try {
-                    rawInventory = await extractFromLocalDB(filePaths[0], pairingData.schemaMapping);
-                    syncTier = 5; // Tier 5 is CSV Fallback
-                    resolvePrompt(null);
-                  } catch(e) {
-                    rejectPrompt(e);
-                  }
-                } else {
-                  rejectPrompt(new Error('User cancelled CSV fallback.'));
-                }
-              });
-              notif.on('close', () => rejectPrompt(new Error('CSV fallback notification dismissed.')));
-              notif.show();
-            } else {
-              rejectPrompt(new Error('Notifications not supported. Cannot prompt for CSV fallback.'));
-            }
-          });
-        } else {
-          throw err;
+      let attempts = 0;
+      const maxAttempts = 3;
+      let success = false;
+      let lastErrMessage = '';
+
+      while (attempts < maxAttempts && !success) {
+        attempts++;
+        try {
+          if (attempts > 1) {
+            console.log(`[AUTONOMOUS RETRY] Sync failed. Retrying... (Attempt ${attempts}/${maxAttempts})`);
+            broadcastSyncStream(`\\n[SYSTEM] Previous extraction was incomplete. Autonomously retrying sync (Attempt ${attempts}/${maxAttempts})...`);
+            await new Promise(resolve => setTimeout(resolve, 5000)); // wait 5s before retry
+          }
+          const result = await extractFromWebPOS(pairingData.posIdentifier, pairingData.schemaMapping, streamBatchToCloud);
+          rawInventory = result.items;
+          syncTier = result.tier;
+          success = true;
+        } catch (err: any) {
+          lastErrMessage = err.message;
+          if (!lastErrMessage.includes('ALL_TIERS_FAILED')) {
+             throw err; // Not a validation/extraction failure, something else broke, so abort.
+          }
         }
+      }
+
+      if (!success) {
+        const reason = lastErrMessage.split('ALL_TIERS_FAILED:')[1]?.trim() || 'Unknown error';
+        console.log(`All automated tiers failed after ${maxAttempts} attempts (${reason}). Triggering CSV fallback...`);
+        await new Promise((resolvePrompt, rejectPrompt) => {
+          const { Notification, dialog, BrowserWindow } = require('electron');
+          if (Notification.isSupported()) {
+            const notif = new Notification({
+              title: 'Synkk Web POS Sync Failed',
+              body: 'All automated sync methods failed. Click here to manually upload your inventory CSV.'
+            });
+            notif.on('click', async () => {
+              const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+              const filePaths = dialog.showOpenDialogSync(win, {
+                title: 'Select Inventory CSV',
+                filters: [{ name: 'CSV', extensions: ['csv'] }],
+                properties: ['openFile']
+              });
+              if (filePaths && filePaths.length > 0) {
+                try {
+                  rawInventory = await extractFromLocalDB(filePaths[0], pairingData.schemaMapping);
+                  syncTier = 5; // Tier 5 is CSV Fallback
+                  resolvePrompt(null);
+                } catch(e) {
+                  rejectPrompt(e);
+                }
+              } else {
+                rejectPrompt(new Error('User cancelled CSV fallback.'));
+              }
+            });
+            notif.on('close', () => rejectPrompt(new Error('CSV fallback notification dismissed.')));
+            notif.show();
+          } else {
+            rejectPrompt(new Error('Notifications not supported. Cannot prompt for CSV fallback.'));
+          }
+        });
       }
     } else if (pairingData.posIdentifier) {
       // Branch 1: Local SQLite DB
       console.log('Target is Local Database. Executing SQLite extraction...');
+      
+      // Foundational Fix: Run SELECT COUNT(*) before extraction to know the expected total
+      let localDbTotal: CountResult = { status: 'unverifiable', reason: 'Non-SQLite file type' };
+      const localExt = require('path').extname(pairingData.posIdentifier).toLowerCase();
+      if (localExt !== '.csv' && localExt !== '.json') {
+        try {
+          const Database = require('better-sqlite3');
+          const db = new Database(pairingData.posIdentifier, { readonly: true, fileMustExist: true });
+          const countRow = db.prepare(`SELECT COUNT(*) as total FROM "${pairingData.schemaMapping?.tableName}"`).get() as any;
+          db.close();
+          if (countRow?.total > 0) {
+            localDbTotal = { status: 'verified', total: countRow.total };
+            console.log(`[CountValidation] Local DB: Expected ${countRow.total} items from SELECT COUNT(*).`);
+            broadcastSyncStream(`[COUNT] Expecting ${countRow.total} items from local database.`);
+          }
+        } catch (countErr) {
+          console.warn('[CountValidation] Local DB: SELECT COUNT(*) failed:', (countErr as any).message);
+        }
+      }
+      
       rawInventory = await extractFromLocalDB(pairingData.posIdentifier, pairingData.schemaMapping);
+      validateExtractedCount(rawInventory.length, localDbTotal, 'Local DB');
       syncTier = 1;
     }
 
@@ -344,7 +483,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
         },
         timeout: 30000 // Increased from 10s to 30s to allow AI classification to finish
       });
-      console.log('Successfully pushed to Supabase via Web Relay!');
+      console.log('Successfully pushed to MongoDB via Web Relay!');
       
       if (response.data && response.data.newSlug && response.data.newSlug !== storefrontData.slug) {
         console.log(`Auto-upgrading guest slug from ${storefrontData.slug} to ${response.data.newSlug}`);
@@ -515,692 +654,172 @@ async function extractFromLocalDB(dbPath: string, schema: any): Promise<any[]> {
   }
 }
 
-// ── Core Extraction: Web POS (Background Window) ─────────────────────
-async function extractFromWebPOS(url: string, schema: any, onBatchExtracted?: (batch: any[]) => Promise<void>): Promise<{ items: any[], tier: number }> {
-  return new Promise(async (resolve, reject) => {
-    broadcastSyncProgress(40, 'Starting background Web POS extraction...');
-    const hiddenWindow = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true
-      }
-    });
+// ── Core Extraction: Web POS (Agent-Based) ───────────────────────────
+const PSX_AGENT_ENDPOINT = 'https://www.pharmastackx.com/api/synkk-ai/agent';
+const MAX_AGENT_TURNS = 25; // safety cap on agent loop
 
-    let isCancelled = false;
+async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (batch: any[]) => Promise<void>): Promise<{ items: any[], tier: number }> {
+  broadcastSyncProgress(40, 'Starting AI agent extraction...');
+  broadcastSyncStream('[AGENT] Synkk AI is booting up. Opening hidden browser...');
 
-    // 🔴 GUARANTEED TIMEOUT: 2 Hours (7,200,000 ms) instead of 5 minutes.
-    const timeoutId = setTimeout(() => {
-      isCancelled = true; // Signal all internal loops to die immediately
-      if (!hiddenWindow.isDestroyed()) {
-        hiddenWindow.destroy();
-        reject(new Error('Web POS extraction timed out after 2 hours.'));
-      }
-    }, 7200000);
-
-    // Override resolve/reject to clear the timeout so it doesn't fire after success
-    const originalResolve = resolve;
-    resolve = (val) => { clearTimeout(timeoutId); originalResolve(val); };
-    const originalReject = reject;
-    reject = (err) => { clearTimeout(timeoutId); originalReject(err); };
-
-    try {
-      // Tier 1: Zero-Scrape First Sync — use pre-processed items from onboarding
-      const pairingData = getStore('pairing') as any;
-      if (pairingData && pairingData.initialSyncItems && pairingData.initialSyncItems.length > 0) {
-        const items = pairingData.initialSyncItems;
-        console.log(`Tier 1: Using ${items.length} pre-processed items from onboarding. No AI needed.`);
-        delete pairingData.initialSyncItems;
-        setStore('pairing', pairingData);
-        broadcastSyncProgress(75, `Tier 1: Loaded ${items.length} items from onboarding. Skipping browser entirely.`);
-        hiddenWindow.destroy();
-        return resolve({ items, tier: 1 });
-      }
-
-      async function processWithVercelAI(payloadText: string, tier: number, customSchema?: any) {
-        const response = await fetch('https://www.pharmastackx.com/api/synkk-ai/extract-web-pos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pageText: payloadText, schema: customSchema || schema })
-        });
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          const errMsg = err.error || err.message || response.statusText;
-          throw new Error(`Vercel Backend Error (${response.status}): ${errMsg}`);
-        }
-        const data = await response.json();
-        return { items: data, tier };
-      }
-
-      broadcastSyncProgress(42, 'Attaching debugger to background window...');
-      let networkPayload: any = null;
-      let networkUrl: string | null = null;
-      
-      if (hiddenWindow.isDestroyed()) return;
-
-      broadcastSyncProgress(44, `Navigating to POS URL: ${url}`);
-      hiddenWindow.loadURL(url).catch((err: any) => {
-        if (hiddenWindow.isDestroyed()) return;
-        reject(new Error(`Failed to load POS URL: ${err.message}`));
-      });
-
-      // Tier 3 Setup: Attach Debugger IMMEDIATELY after loadURL begins
-      try {
-        hiddenWindow.webContents.debugger.attach('1.3');
-        const sendCmd = hiddenWindow.webContents.debugger.sendCommand('Network.enable');
-        const timeoutCmd = new Promise((_, r) => setTimeout(() => r(new Error('Debugger command timeout')), 3000));
-        await Promise.race([sendCmd, timeoutCmd]);
-        
-      hiddenWindow.webContents.debugger.on('message', (event, method, params) => {
-        if (method === 'Network.responseReceived') {
-          if (params.response.mimeType?.includes('json')) {
-            hiddenWindow.webContents.debugger.sendCommand('Network.getResponseBody', { requestId: params.requestId })
-              .then(res => {
-                if (res.body && res.body.length > 2000) { // Catch medium-to-large JSON payloads
-                  try {
-                    const json = JSON.parse(res.body);
-                    if (Array.isArray(json)) {
-                      if (!networkPayload) networkPayload = [];
-                      networkPayload = [...networkPayload, ...json];
-                      networkUrl = params.response.url;
-                      console.log(`[Tier 3] Intercepted JSON Array. Total cached items: ${networkPayload.length}`);
-                    } else if (json.data && Array.isArray(json.data)) {
-                      if (!networkPayload) networkPayload = [];
-                      networkPayload = [...networkPayload, ...json.data];
-                      networkUrl = params.response.url;
-                      console.log(`[Tier 3] Intercepted JSON .data Array. Total cached items: ${networkPayload.length}`);
-                    }
-                  } catch (e) {}
-                }
-              }).catch(() => {});
-          }
-        }
-      });
-      } catch (err) {
-        console.error('Debugger attach failed:', err);
-      }
-
-      hiddenWindow.webContents.once('dom-ready', async () => {
-      try {
-        broadcastSyncProgress(46, 'Page loaded. Checking for login screen...');
-        console.log('Hidden window loaded URL, checking for login screen...');
-
-        // ── Step 1: Detect if we landed on a login page ──
-        const loginDetectCode = `
-          (() => {
-            const inputs = document.querySelectorAll('input');
-            let hasPassword = false;
-            let hasUsername = false;
-            for (const inp of inputs) {
-              if (inp.type === 'password') hasPassword = true;
-              if (inp.type === 'email' || inp.type === 'text' && (inp.name?.toLowerCase().includes('user') || inp.name?.toLowerCase().includes('email') || inp.placeholder?.toLowerCase().includes('email') || inp.placeholder?.toLowerCase().includes('username'))) hasUsername = true;
-            }
-            return hasPassword && hasUsername;
-          })()
-        `;
-        const isLoginPage = await hiddenWindow.webContents.executeJavaScript(loginDetectCode);
-
-        if (isLoginPage) {
-          broadcastSyncProgress(48, 'Login screen detected. Attempting auto-relogin...');
-          console.log('Login screen detected! Attempting auto-relogin...');
-          
-          // ── Step 2: Retrieve stored credentials ──
-          const encryptedCreds = getStore('webPosCredentials') as { encUser: string; encPass: string } | null;
-          
-          if (!encryptedCreds || !encryptedCreds.encUser || !encryptedCreds.encPass) {
-            hiddenWindow.destroy();
-            reject(new Error('Auto-Login Failed: login_screen_detected. No saved credentials found. Please reconnect via the Source tab and save your login details.'));
-            return;
-          }
-
-          // ── Step 3: Decrypt credentials using OS-level safeStorage ──
-          let username: string;
-          let password: string;
-          try {
-            username = safeStorage.decryptString(Buffer.from(encryptedCreds.encUser, 'base64'));
-            password = safeStorage.decryptString(Buffer.from(encryptedCreds.encPass, 'base64'));
-          } catch (decryptErr) {
-            hiddenWindow.destroy();
-            reject(new Error('Auto-Login Failed: Could not decrypt stored credentials. Please reconnect via the Source tab and re-save your login.'));
-            return;
-          }
-
-          // ── Step 4: Inject credentials and submit ──
-          const loginCode = `
-            (() => {
-              const inputs = document.querySelectorAll('input');
-              let userInput = null;
-              let passInput = null;
-              for (const inp of inputs) {
-                if (inp.type === 'password') passInput = inp;
-                if (inp.type === 'email' || (inp.type === 'text' && (inp.name?.toLowerCase().includes('user') || inp.name?.toLowerCase().includes('email') || inp.placeholder?.toLowerCase().includes('email') || inp.placeholder?.toLowerCase().includes('username')))) userInput = inp;
-              }
-
-              if (!userInput || !passInput) return 'NO_FIELDS';
-
-              // Use native input setter to trigger React/Vue/Angular change detection
-              const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-              if (nativeInputValueSetter) {
-                nativeInputValueSetter.call(userInput, ${JSON.stringify(username)});
-                nativeInputValueSetter.call(passInput, ${JSON.stringify(password)});
-              } else {
-                userInput.value = ${JSON.stringify(username)};
-                passInput.value = ${JSON.stringify(password)};
-              }
-
-              userInput.dispatchEvent(new Event('input', { bubbles: true }));
-              passInput.dispatchEvent(new Event('input', { bubbles: true }));
-              userInput.dispatchEvent(new Event('change', { bubbles: true }));
-              passInput.dispatchEvent(new Event('change', { bubbles: true }));
-
-              // Find and click the submit button
-              const buttons = document.querySelectorAll('button, input[type="submit"]');
-              for (const btn of buttons) {
-                const text = (btn.textContent || btn.value || '').toLowerCase();
-                if (text.includes('log in') || text.includes('login') || text.includes('sign in') || text.includes('submit') || btn.type === 'submit') {
-                  btn.click();
-                  return 'SUBMITTED';
-                }
-              }
-
-              // Fallback: try submitting the form directly
-              const form = passInput.closest('form');
-              if (form) {
-                form.submit();
-                return 'FORM_SUBMITTED';
-              }
-
-              return 'NO_SUBMIT_BUTTON';
-            })()
-          `;
-
-          const loginResult = await hiddenWindow.webContents.executeJavaScript(loginCode);
-          
-          if (loginResult === 'NO_FIELDS' || loginResult === 'NO_SUBMIT_BUTTON') {
-            hiddenWindow.destroy();
-            reject(new Error(`Auto-Login Failed: login_screen_detected. Could not find the login form fields.`));
-            return;
-          }
-
-          // ── Step 5: Wait for page to reload after login ──
-          broadcastSyncProgress(52, 'Login submitted. Waiting for POS dashboard to load...');
-          console.log(`Login form submitted (${loginResult}). Waiting for page to reload...`);
-          
-          await new Promise<void>((res) => {
-            let resolved = false;
-            hiddenWindow.webContents.once('dom-ready', () => {
-              if (!resolved) { resolved = true; res(); }
-            });
-            // If nothing loads in 15s, continue anyway
-            setTimeout(() => { if (!resolved) { resolved = true; res(); } }, 15000);
-          });
-
-          // ── Step 6: Check if login was successful ──
-          const stillLoginPage = await hiddenWindow.webContents.executeJavaScript(loginDetectCode);
-          if (stillLoginPage) {
-            hiddenWindow.destroy();
-            reject(new Error('Auto-Login Failed: login_screen_detected. Your saved password may be incorrect, or the site requires a CAPTCHA.'));
-            return;
-          }
-
-          broadcastSyncProgress(54, 'Auto-relogin successful! Ensuring correct URL...');
-          console.log('Auto-relogin successful! Proceeding with data extraction...');
-
-          // Navigate back to the target URL if the login redirection took us elsewhere (like a generic dashboard)
-          const currentUrl = hiddenWindow.webContents.getURL();
-          if (currentUrl !== url) {
-            console.log(`Redirected to ${currentUrl} after login. Navigating back to target inventory page: ${url}`);
-            await hiddenWindow.loadURL(url);
-            await new Promise<void>((res) => {
-              let resolved = false;
-              hiddenWindow.webContents.once('dom-ready', () => {
-                if (!resolved) { resolved = true; res(); }
-              });
-              setTimeout(() => { if (!resolved) { resolved = true; res(); } }, 15000);
-            });
-          }
-
-          // Allow extra time for dashboard/inventory page to fully render
-          await new Promise(r => setTimeout(r, 5000));
-        }
-
-        // ── Normal extraction flow ──
-        broadcastSyncProgress(56, 'Waiting 8s for inventory data to fully render...');
-        console.log('Waiting for SPAs to render inventory data...');
-        await new Promise(r => setTimeout(r, 8000));
-
-        broadcastSyncProgress(58, 'Checking for direct API endpoints (Tier 2/3)...');
-
-        // ── 4-TIER FALLBACK STRATEGY ──
-        // Note on Execution Order vs Tier Numbering:
-        // The tiers are numbered by quality (Tier 2 is better than Tier 3, etc).
-        // However, they work together: Tier 3 (Smart Discovery) runs on initial setup 
-        // to sniff network traffic and discover the internal API endpoint. 
-        // Once discovered, subsequent syncs will attempt Tier 2 (Direct API Hijack) FIRST 
-        // because it is much faster. If Tier 2 fails or has no endpoint, it falls back 
-        // to Tier 3, then Tier 4 (DOM Scraping), and finally Tier 5 (CSV Upload).
-
-        // Tier 2: Paginated API Loop Hijack (The "God Mode" Approach)
-        try {
-          const discoveredApiEndpoint = getStore('discoveredApiEndpoint') as string | null;
-          if (discoveredApiEndpoint) {
-            broadcastSyncProgress(60, `Analyzing JSON API signature...`);
-            console.log('Tier 2: Discovered API endpoint found. Attempting paginated fetch loop...');
-            
-            let page = 1;
-            let totalExtracted = 0;
-            let allRawItems: any[] = [];
-            let lastPageString = '';
-            
-            while (page <= 100) { // Safety cap
-              if (isCancelled) return reject(new Error('Tier 2 aborted by global timeout'));
-              
-              let pagedEndpoint = discoveredApiEndpoint;
-              
-              // Smart URL pagination & limit mutation
-              if (page === 1) {
-                // Force massive limits on page 1 to try and grab everything at once
-                if (pagedEndpoint.includes('length=')) pagedEndpoint = pagedEndpoint.replace(/length=\d+/, 'length=2000');
-                if (pagedEndpoint.includes('limit=')) pagedEndpoint = pagedEndpoint.replace(/limit=\d+/, 'limit=2000');
-                if (pagedEndpoint.includes('per_page=')) pagedEndpoint = pagedEndpoint.replace(/per_page=\d+/, 'per_page=2000');
-                
-                const joiner = pagedEndpoint.includes('?') ? '&' : '?';
-                pagedEndpoint += `${joiner}limit=2000&per_page=2000&size=2000&take=2000`;
-              } else {
-                if (pagedEndpoint.includes('start=')) pagedEndpoint = pagedEndpoint.replace(/start=\d+/, `start=${(page-1)*25}`);
-                else if (pagedEndpoint.includes('page=')) pagedEndpoint = pagedEndpoint.replace(/page=\d+/, `page=${page}`);
-                else if (pagedEndpoint.includes('p=')) pagedEndpoint = pagedEndpoint.replace(/p=\d+/, `p=${page}`);
-                else if (pagedEndpoint.includes('offset=')) pagedEndpoint = pagedEndpoint.replace(/offset=\d+/, `offset=${(page-1)*25}`);
-                else if (pagedEndpoint.includes('skip=')) pagedEndpoint = pagedEndpoint.replace(/skip=\d+/, `skip=${(page-1)*25}`);
-                else pagedEndpoint += (pagedEndpoint.includes('?') ? '&' : '?') + `page=${page}&p=${page}&start=${(page-1)*25}`;
-              }
-
-              broadcastSyncProgress(Math.min(65 + page, 80), `Hijacking backend endpoint... Fetching Page ${page}`);
-              
-              const tier2Code = `
-                (async () => {
-                  try {
-                    let token = '';
-                    for (let i = 0; i < localStorage.length; i++) {
-                      const k = localStorage.key(i);
-                      if (k && k.toLowerCase().includes('token')) token = localStorage.getItem(k) || '';
-                    }
-                    if (!token) {
-                      for (let i = 0; i < sessionStorage.length; i++) {
-                        const k = sessionStorage.key(i);
-                        if (k && k.toLowerCase().includes('token')) token = sessionStorage.getItem(k) || '';
-                      }
-                    }
-                    if (token.startsWith('"')) token = JSON.parse(token);
-                    
-                    const headers = {
-                      'Accept': 'application/json',
-                      'X-Requested-With': 'XMLHttpRequest'
-                    };
-                    if (token) headers['Authorization'] = 'Bearer ' + token;
-                    
-                    const res = await fetch("${pagedEndpoint}", { headers });
-                    if (res.ok) return { success: true, data: await res.json() };
-                    return { success: false, error: 'HTTP ' + res.status + ' ' + res.statusText };
-                  } catch(e) { return { success: false, error: e.toString() }; }
-                })()
-              `;
-              
-              const tier2Result = await hiddenWindow.webContents.executeJavaScript(tier2Code);
-              if (!tier2Result || !tier2Result.success) break;
-              
-              let tier2Data = tier2Result.data;
-              let itemsArray = Array.isArray(tier2Data) ? tier2Data : (tier2Data.data || tier2Data.items || tier2Data.products || tier2Data.inventory || []);
-              
-              if (!Array.isArray(itemsArray) || itemsArray.length === 0) break;
-              
-              // BULLETPROOF DUPLICATE DETECTION (Prevents Infinite Loops)
-              const currentString = JSON.stringify(itemsArray);
-              if (currentString === lastPageString) {
-                console.log('Tier 2: API returned identical duplicate data for page ' + page + '. Breaking loop.');
-                break;
-              }
-              lastPageString = currentString;
-              
-              allRawItems.push(...itemsArray);
-              totalExtracted += itemsArray.length;
-              
-              for (const obj of itemsArray) {
-                let name = obj.name || obj.title || obj.product || obj.description || obj.product_name || obj.item_name || obj.drug_name || obj.drugName || obj.medicine || obj.medicine_name || obj.brandName || obj.genericName || 'Item';
-                if (typeof name === 'string') name = name.replace(/<[^>]*>?/gm, '').trim(); // Strip HTML from DataTables response
-                
-                let qty = obj.qty !== undefined ? obj.qty : (obj.quantity !== undefined ? obj.quantity : (obj.stock !== undefined ? obj.stock : (obj.current_stock !== undefined ? obj.current_stock : (obj.available !== undefined ? obj.available : (obj.quantity_on_hand !== undefined ? obj.quantity_on_hand : 0)))));
-                if (typeof qty === 'string') qty = qty.replace(/[^0-9.]/g, ''); // Extract just the numbers from "30.00 Pieces"
-                
-                broadcastSyncStream(`Extracted: ${name} -> Stock: ${qty}`);
-                await new Promise(r => setTimeout(r, 15));
-              }
-              
-              if (itemsArray.length < 5) break;
-              page++;
-            }
-            
-            if (allRawItems.length > 0) {
-              console.log('--- DEBUG: RAW API PAYLOAD OF FIRST ITEM ---');
-              console.log(JSON.stringify(allRawItems[0], null, 2));
-              console.log('--------------------------------------------');
-              
-              broadcastSyncStream(`\\n[DONE] Successfully extracted ${totalExtracted} total items across ${page - 1} pages.`);
-              console.log('Tier 2 successful! Total items:', totalExtracted);
-              broadcastSyncProgress(85, `Downloaded ${totalExtracted} total items. Structuring data locally...`);
-              
-              // Filter out completely inactive/deleted items first
-              const activeItems = allRawItems.filter(obj => 
-                obj.is_inactive !== 1 && 
-                obj.is_inactive !== true && 
-                obj.is_inactive !== '1' &&
-                obj.not_for_selling !== 1 && 
-                obj.not_for_selling !== true &&
-                obj.not_for_selling !== '1'
-              );
-              
-              broadcastSyncStream(`\\n[FILTER] Removed deleted/hidden records. Found ${activeItems.length} active storefront items out of ${totalExtracted} total.`);
-              broadcastSyncStream(`[STAGE 1] Fast Local Mapping of Name, Qty, and Price...\\n`);
-              
-              // Stage 1: Clean and map all items locally
-              let stage1Items: any[] = [];
-              for (const obj of activeItems) {
-                let name = obj.name || obj.title || obj.product || obj.description || obj.product_name || obj.item_name || obj.drug_name || obj.drugName || obj.medicine || obj.medicine_name || obj.brandName || obj.genericName || 'Item';
-                if (typeof name === 'string') name = name.replace(/<[^>]*>?/gm, '').trim();
-                
-                let qty = obj.qty !== undefined ? obj.qty : (obj.quantity !== undefined ? obj.quantity : (obj.stock !== undefined ? obj.stock : (obj.current_stock !== undefined ? obj.current_stock : (obj.available !== undefined ? obj.available : (obj.quantity_on_hand !== undefined ? obj.quantity_on_hand : 0)))));
-                if (typeof qty === 'string') qty = parseInt(qty.replace(/[^0-9.]/g, ''), 10) || 0;
-                else qty = Number(qty) || 0;
-                
-                let price = obj.price !== undefined ? obj.price : (obj.selling_price !== undefined ? obj.selling_price : (obj.retail_price !== undefined ? obj.retail_price : (obj.unit_price !== undefined ? obj.unit_price : (obj.amount !== undefined ? obj.amount : (obj.sales_price !== undefined ? obj.sales_price : (obj.rate !== undefined ? obj.rate : 0))))));
-                if (typeof price === 'string') price = parseFloat(price.replace(/<[^>]*>?/gm, '').replace(/[^0-9.]/g, '')) || 0;
-                else price = Number(price) || 0;
-                
-                stage1Items.push({ name, qty, price });
-              }
-              broadcastSyncStream(`\\n[STAGE 1 DONE] Identified ${stage1Items.length} valid structured items.`);
-              broadcastSyncStream(`[STAGE 2] Proceeding to Synkk AI Cloud Advanced Filtering...\\n`);
-              
-              // Load the AI Memory Cache
-              const aiCache = (getStore('aiCache') as Record<string, boolean>) || {};
-              let newUncachedItems: any[] = [];
-              let finalItems: any[] = [];
-              let streamBuffer: any[] = [];
-              
-              // Helper to progressively stream batches of 100 items directly to Supabase
-              const flushStreamBuffer = async (force = false) => {
-                if (onBatchExtracted && streamBuffer.length > 0 && (force || streamBuffer.length >= 100)) {
-                  try {
-                    await onBatchExtracted([...streamBuffer]);
-                    streamBuffer = [];
-                  } catch (e) {
-                    console.error('Failed to flush stream batch:', e);
-                  }
-                }
-              };
-              
-              // Fast-pass: Check cache first to avoid sending 5,000 items to AI every 15 minutes
-              for (const item of stage1Items) {
-                if (aiCache[item.name] === true) {
-                  // Known valid medicine
-                  finalItems.push(item);
-                  streamBuffer.push(item);
-                  await flushStreamBuffer();
-                } else if (aiCache[item.name] === false) {
-                  // Known grocery (dropped previously)
-                  continue; 
-                } else {
-                  // Completely new item, AI needs to analyze it
-                  newUncachedItems.push(item);
-                }
-              }
-              
-              if (newUncachedItems.length === 0) {
-                await flushStreamBuffer(true);
-                broadcastSyncStream(`[CACHE HIT] All items known! Skipped AI entirely. Safely extracted ${finalItems.length} medical items.`);
-                clearTimeout(timeoutId);
-                hiddenWindow.destroy();
-                return resolve({ items: finalItems, tier: 2 });
-              }
-              
-              broadcastSyncStream(`[AI] Analyzing ${newUncachedItems.length} new unrecognized items...`);
-              
-              // We use chunk size 5 to completely bypass the Vercel AI hard-coded 5-item truncation limit
-              const chunkSize = 5;
-              let chunksProcessed = 0;
-              const totalChunks = Math.ceil(newUncachedItems.length / chunkSize);
-              
-              // Custom prompt schema injected into Vercel AI to handle groceries perfectly
-              const groceryFilterSchema = {
-                instruction: "Analyze this array of pharmacy items. EXPLICITLY DROP and REMOVE any items that are pure groceries, beverages, or non-medical FMCG (e.g., milk, biscuit, coke). KEEP all medical items, supplements, devices, and items used concurrently for treating. VERY IMPORTANT: If you do not recognize an item or are unsure, you MUST KEEP IT. Do not drop unknown medicines."
-              };
-              
-              // ETA Constants
-              const AVG_SECONDS_PER_CHUNK = 2.0;
-              
-              for (let i = 0; i < newUncachedItems.length; i += chunkSize) {
-                const chunk = newUncachedItems.slice(i, i + chunkSize);
-                
-                // Calculate Mathematical ETA
-                const chunksRemaining = totalChunks - chunksProcessed;
-                const estimatedSeconds = chunksRemaining * AVG_SECONDS_PER_CHUNK;
-                const mins = Math.floor(estimatedSeconds / 60);
-                const secs = Math.floor(estimatedSeconds % 60);
-                const etaString = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-                
-                broadcastSyncProgress(85 + Math.floor((chunksProcessed / totalChunks) * 10), `AI Filtering Batch ${chunksProcessed + 1}/${totalChunks}... (ETA: ${etaString})`);
-                
-                try {
-                  const chunkResult = await processWithVercelAI(JSON.stringify(chunk), 2, groceryFilterSchema);
-                  
-                  // Map returned items to know what the AI kept
-                  const keptNames = new Set((chunkResult?.items || []).map((v: any) => v.name));
-                  
-                  for (const rawItem of chunk) {
-                    if (keptNames.has(rawItem.name)) {
-                      aiCache[rawItem.name] = true; // Mark as medicine
-                      finalItems.push(rawItem);
-                      streamBuffer.push(rawItem);
-                      await flushStreamBuffer();
-                    } else {
-                      aiCache[rawItem.name] = false; // Mark as grocery
-                    }
-                  }
-                  broadcastSyncStream(`   ↳ AI Batch ${chunksProcessed + 1}/${totalChunks}: kept ${keptNames.size}/${chunk.length} items. (ETA: ${etaString})`);
-                } catch (err: any) {
-                  // Fallback: If AI fails, keep the items to be safe (do not drop valid medicines)
-                  for (const rawItem of chunk) {
-                    aiCache[rawItem.name] = true; // Assume medicine to prevent data loss
-                    finalItems.push(rawItem);
-                    streamBuffer.push(rawItem);
-                    await flushStreamBuffer();
-                  }
-                  broadcastSyncStream(`   ↳ AI Batch failed, safely keeping ${chunk.length} items to prevent data loss. (ETA: ${etaString})`);
-                  console.error('AI Chunk failed:', err);
-                }
-                chunksProcessed++;
-              }
-              
-              // Flush any remaining items in the buffer
-              await flushStreamBuffer(true);
-              
-              // Save the updated cache back to local storage
-              setStore('aiCache', aiCache);
-              
-              broadcastSyncStream(`\\n[DONE] Stage 2 Complete! Safely extracted ${finalItems.length} medical items.`);
-              
-              hiddenWindow.destroy();
-              return resolve({ items: finalItems, tier: 2 });
-            }
-          }
-        } catch (e) {
-          console.log('Tier 2 failed:', e);
-        }
-
-        // Tier 3: Network Interception (Smart Discovery)
-        if (networkPayload && networkUrl) {
-           console.log('Tier 3: Intercepted valid JSON payload. Saving endpoint for Tier 2...');
-           setStore('discoveredApiEndpoint', networkUrl);
-           try {
-             let aggregatedResults: any[] = [];
-             let payloadArray = Array.isArray(networkPayload) ? networkPayload : [networkPayload];
-             if (payloadArray.length > 5000) payloadArray = payloadArray.slice(0, 5000); // hard cap
-
-             const chunkSize = 30;
-             const chunks = [];
-             for (let i = 0; i < payloadArray.length; i += chunkSize) {
-                chunks.push(payloadArray.slice(i, i + chunkSize));
-             }
-             
-             let processed = 0;
-             const promises = chunks.map(async (chunk) => {
-                const result = await processWithVercelAI(JSON.stringify(chunk), 3);
-                processed++;
-                broadcastSyncProgress(60 + Math.floor((processed / chunks.length) * 15), `Tier 3 AI Chunking: Processing batch ${processed}/${chunks.length}...`);
-                return result.items || result;
-             });
-             
-             const chunkResults = await Promise.all(promises);
-             for (const res of chunkResults) {
-                aggregatedResults = [...aggregatedResults, ...(Array.isArray(res) ? res : [])];
-             }
-             
-             hiddenWindow.destroy();
-             return resolve({ items: aggregatedResults, tier: 3 });
-           } catch(e) {
-             console.log('Tier 3 AI processing failed:', e);
-           }
-        }
-
-        // Tier 4: DOM Scraping
-        broadcastSyncProgress(59, 'Expanding rows and scraping DOM...');
-        console.log('Tier 4: Expanding rows and scraping DOM...');
-        const expandAndScrollCode = `
-          (async () => {
-            let allText = document.body.innerText + '\\n\\n';
-            
-            // 1. Smart Dropdown Hunter (Combobox heuristic)
-            const dropdowns = Array.from(document.querySelectorAll('select, div[role="combobox"], div[role="button"], span[role="button"], div[class*="select"], div[class*="dropdown"]'));
-            for (const el of dropdowns) {
-              const text = (el.textContent || '').toLowerCase();
-              if (text.includes('rows') || text.includes('per page') || text.includes('view') || text.match(/^(10|20|25|50)$/)) {
-                if (el.tagName.toLowerCase() === 'select') {
-                  const options = Array.from(el.options);
-                  let maxOpt = options[0];
-                  let maxVal = -1;
-                  for (const o of options) {
-                    if (o.text.toLowerCase().includes('all')) { maxOpt = o; break; }
-                    const val = parseInt(o.value) || parseInt(o.text) || 0;
-                    if (val > maxVal) { maxVal = val; maxOpt = o; }
-                  }
-                  if (maxVal > 25 || maxOpt.text.toLowerCase().includes('all')) {
-                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set;
-                    if (nativeInputValueSetter) nativeInputValueSetter.call(el, maxOpt.value);
-                    else el.value = maxOpt.value;
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                    await new Promise(r => setTimeout(r, 3000));
-                  }
-                } else {
-                  el.click();
-                  await new Promise(r => setTimeout(r, 1000));
-                  const menuItems = Array.from(document.querySelectorAll('li, div[role="option"], span[class*="option"], div[class*="item"]'));
-                  let maxOpt = null;
-                  let maxVal = -1;
-                  for (const item of menuItems) {
-                    const txt = (item.textContent || '').toLowerCase().trim();
-                    if (txt === 'all') { maxOpt = item; break; }
-                    const val = parseInt(txt);
-                    if (val > maxVal && val >= 50 && val <= 5000) { maxVal = val; maxOpt = item; }
-                  }
-                  if (maxOpt) {
-                    maxOpt.click();
-                    await new Promise(r => setTimeout(r, 4000));
-                  } else {
-                    el.click(); // close if not found
-                  }
-                }
-                allText = document.body.innerText + '\\n\\n';
-              }
-            }
-
-            // 2. Auto-scroll to bottom (for window AND scrollable containers) - Loop it for infinite scroll
-            for (let s = 0; s < 8; s++) {
-              const scrollables = Array.from(document.querySelectorAll('*')).filter(el => {
-                const style = window.getComputedStyle(el);
-                return (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
-              });
-              for (const el of scrollables) { el.scrollBy(0, 50000); }
-              window.scrollBy(0, 50000);
-              await new Promise(r => setTimeout(r, 1500));
-              allText += document.body.innerText + '\\n\\n'; // Accumulate just in case items disappear from DOM
-            }
-
-            // 3. Try to click "Next" pagination buttons and accumulate text (Max 25 pages)
-            for (let i = 0; i < 25; i++) {
-              const nextBtns = Array.from(document.querySelectorAll('button, a, div[role="button"], span, li')).filter(b => {
-                const txt = (b.textContent || '').toLowerCase().trim();
-                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-                const title = (b.getAttribute('title') || '').toLowerCase();
-                const className = (b.className || '').toString().toLowerCase();
-                
-                return txt === 'next' || txt === 'next page' || txt === '>' || txt === '›' || txt === '»' || txt.includes('next') ||
-                       aria === 'next' || aria.includes('next page') || title.includes('next') ||
-                       className.includes('next-page') || className.includes('pagination-next');
-              });
-              
-              // Find first valid, enabled next button
-              const validBtn = nextBtns.find(b => {
-                // @ts-ignore
-                if (b.disabled) return false;
-                if (b.classList.contains('disabled')) return false;
-                if (b.getAttribute('aria-disabled') === 'true') return false;
-                // Avoid invisible buttons
-                const rect = b.getBoundingClientRect();
-                return rect.width > 0 && rect.height > 0;
-              });
-              
-              if (validBtn) {
-                // @ts-ignore
-                validBtn.click();
-                await new Promise(r => setTimeout(r, 3500)); // wait for page to render
-                allText += document.body.innerText + '\\n\\n';
-              } else {
-                break; // No more next buttons
-              }
-            }
-
-            return allText;
-          })();
-        `;
-        const pageText = await hiddenWindow.webContents.executeJavaScript(expandAndScrollCode);
-        await new Promise(r => setTimeout(r, 1000));
-        
-        try {
-          broadcastSyncProgress(60, 'AI Semantic Extraction in progress...');
-          const result = await processWithVercelAI(pageText, 4);
-          hiddenWindow.destroy();
-          return resolve(result);
-        } catch (t4Err: any) {
-          console.log('Tier 4 failed:', t4Err.message);
-          broadcastSyncProgress(60, `AI Failed: ${t4Err.message}`);
-          await new Promise(r => setTimeout(r, 5000)); // Show error for 5s
-          hiddenWindow.destroy();
-          
-          // Trigger ALL_TIERS_FAILED error but keep the detailed reason
-          reject(new Error(`ALL_TIERS_FAILED: ${t4Err.message}`));
-        }
-
-      } catch (e: any) {
-        hiddenWindow.destroy();
-        reject(e.message.includes('ALL_TIERS_FAILED') ? e : new Error(`Semantic Web Extraction Failed: ${e.message}`));
-      }
-    });
-    } catch (criticalErr: any) {
-      if (!hiddenWindow.isDestroyed()) {
-        hiddenWindow.destroy();
-      }
-      reject(criticalErr);
-    }
+  const hiddenWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
   });
+
+  startLiveBroadcast(hiddenWindow);
+
+  // Intercept network traffic immediately so agent can see API calls made during page load
+  const interceptedRequests: Array<{ url: string; body: any }> = [];
+  try {
+    hiddenWindow.webContents.debugger.attach('1.3');
+    await hiddenWindow.webContents.debugger.sendCommand('Network.enable');
+    hiddenWindow.webContents.debugger.on('message', (_event, method, params) => {
+      if (method === 'Network.responseReceived' && params.response.mimeType?.includes('json')) {
+        hiddenWindow.webContents.debugger.sendCommand('Network.getResponseBody', { requestId: params.requestId })
+          .then((res: any) => {
+            if (res.body && res.body.length > 500) {
+              try {
+                const json = JSON.parse(res.body);
+                const arr = Array.isArray(json) ? json : (json.data || json.items || json.products || json.inventory || null);
+                if (arr && Array.isArray(arr) && arr.length > 2) {
+                  interceptedRequests.push({ url: params.response.url, body: json });
+                }
+              } catch (_) {}
+            }
+          }).catch(() => {});
+      }
+    });
+  } catch (_) {}
+
+  // Navigate to the POS URL
+  await hiddenWindow.loadURL(url).catch(() => {});
+  // Give the page 8 seconds to load and fire its API calls
+  await new Promise(r => setTimeout(r, 8000));
+
+  // ── Agent Loop ────────────────────────────────────────────────────────
+  let messages: any[] = [];
+  let turns = 0;
+
+  try {
+    while (turns < MAX_AGENT_TURNS) {
+      turns++;
+      broadcastSyncStream(`[AGENT] Turn ${turns}/${MAX_AGENT_TURNS} — thinking...`);
+
+      const response = await fetch(PSX_AGENT_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, url }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(`Agent endpoint error ${response.status}: ${err.error || response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      // Always update messages with what the agent returned
+      messages = result.messages || messages;
+
+      if (result.type === 'done') {
+        broadcastSyncStream(`[AGENT] ✓ Extraction complete via "${result.method}". Got ${result.items.length} items.`);
+        broadcastSyncProgress(85, `Agent extracted ${result.items.length} items.`);
+        if (!hiddenWindow.isDestroyed()) hiddenWindow.destroy();
+
+        // Progressive stream to cloud if handler provided
+        if (onBatchExtracted && result.items.length > 0) {
+          const batchSize = 100;
+          for (let i = 0; i < result.items.length; i += batchSize) {
+            await onBatchExtracted(result.items.slice(i, i + batchSize));
+          }
+        }
+
+        return { items: result.items, tier: 2 };
+      }
+
+      if (result.type === 'failed') {
+        throw new Error(`ALL_TIERS_FAILED: ${result.reason}`);
+      }
+
+      if (result.type === 'error') {
+        throw new Error(`Agent error: ${result.reason}`);
+      }
+
+      if (result.type === 'tool_call') {
+        const { tool, args, toolUseId } = result;
+        broadcastSyncStream(`[AGENT] → Calling tool: ${tool}`);
+
+        let toolResult: any;
+
+        try {
+          if (tool === 'navigate') {
+            await hiddenWindow.loadURL(args.url).catch(() => {});
+            await new Promise(r => setTimeout(r, 5000));
+            toolResult = { success: true, message: `Navigated to ${args.url}` };
+
+          } else if (tool === 'get_network_traffic') {
+            toolResult = interceptedRequests.length > 0
+              ? { found: interceptedRequests.length, requests: interceptedRequests.slice(0, 10) }
+              : { found: 0, message: 'No JSON API calls intercepted yet.' };
+
+          } else if (tool === 'read_page_dom') {
+            const text = await hiddenWindow.webContents.executeJavaScript(`document.body.innerText`);
+            toolResult = { text: (text as string).slice(0, 20000) };
+
+          } else if (tool === 'execute_script') {
+            const scriptResult = await hiddenWindow.webContents.executeJavaScript(args.script);
+            // Allow extra time for async scripts that trigger UI changes
+            await new Promise(r => setTimeout(r, 3000));
+            toolResult = { result: scriptResult };
+
+          } else if (tool === 'fetch_directly') {
+            const fetchResponse = await fetch(args.url, {
+              method: args.method || 'GET',
+              headers: args.headers || {},
+            });
+            const data = await fetchResponse.json();
+            toolResult = { status: fetchResponse.status, data };
+
+          } else if (tool === 'screenshot') {
+            const image = await hiddenWindow.webContents.capturePage();
+            const base64 = image.toPNG().toString('base64');
+            toolResult = { imageBase64: base64, mimeType: 'image/png' };
+
+          } else {
+            toolResult = { error: `Unknown tool: ${tool}` };
+          }
+        } catch (toolErr: any) {
+          toolResult = { error: toolErr.message };
+        }
+
+        broadcastSyncStream(`[AGENT] ← Tool result: ${JSON.stringify(toolResult).slice(0, 120)}...`);
+
+        // Append the tool result to messages for next turn
+        messages = [
+          ...messages,
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: toolUseId,
+                content: JSON.stringify(toolResult),
+              },
+            ],
+          },
+        ];
+      }
+    }
+
+    throw new Error('ALL_TIERS_FAILED: Agent exceeded maximum turns without finishing.');
+
+  } catch (err: any) {
+    if (!hiddenWindow.isDestroyed()) hiddenWindow.destroy();
+    throw err;
+  }
+
 }
