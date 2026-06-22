@@ -3,7 +3,10 @@ import { MongoClient } from 'mongodb';
 const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/synkk_db';
 const client = new MongoClient(uri);
 
-let dbPromise = client.connect().then(c => c.db());
+let dbPromise = client.connect().then(c => c.db()).catch(err => {
+  console.error('[KnowledgeBase] MongoDB connection failed:', err.message);
+  return null;
+});
 
 export async function getKnowledgeBaseEntry(posIdentifier: string) {
   try {

@@ -22,18 +22,19 @@ export function stopScheduler() {
 export function updateScheduler() {
   stopScheduler();
 
-  const freq = getStore('syncFrequency') || '15m';
-  let ms = 15 * 60 * 1000; // default 15m
+  const freq = getStore('syncFrequency') || '24h';
+  let ms = 24 * 60 * 60 * 1000; // default 24h
 
-  if (freq === '15m') ms = 15 * 60 * 1000;
-  else if (freq === '1h') ms = 60 * 60 * 1000;
+  if (freq === '15m') ms = 12 * 60 * 60 * 1000; // min allowed is 12h
+  else if (freq === '1h') ms = 12 * 60 * 60 * 1000; // min allowed is 12h
   else if (freq === '12h') ms = 12 * 60 * 60 * 1000;
   else if (freq === '24h') ms = 24 * 60 * 60 * 1000;
 
   console.log(`Starting sync scheduler with interval: ${freq}`);
-  
+
+  // Only run on interval — never fire immediately on startup
   syncInterval = setInterval(async () => {
-    console.log(`[Scheduler] Triggering sync...`);
+    console.log(`[Scheduler] Triggering scheduled sync...`);
     await attemptSyncWithRetries();
   }, ms);
 }

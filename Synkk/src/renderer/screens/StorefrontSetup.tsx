@@ -7,6 +7,7 @@ export default function StorefrontSetup() {
   const [name, setName] = useState('My Pharmacy');
   const [slug, setSlug] = useState('my-pharmacy');
   const [slugEdited, setSlugEdited] = useState(false);
+  const [originalSlug, setOriginalSlug] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [setupError, setSetupError] = useState('');
   const [dbSaveStatus, setDbSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
@@ -24,6 +25,7 @@ export default function StorefrontSetup() {
           if (savedStorefront.name) setName(savedStorefront.name);
           if (savedStorefront.slug) {
              setSlug(savedStorefront.slug);
+             setOriginalSlug(savedStorefront.slug);
           }
           if (savedStorefront.isNewUser === false) {
              setIsNewUser(false);
@@ -236,6 +238,26 @@ export default function StorefrontSetup() {
               const data = await response.json();
               if (!data.success) {
                 setSetupError("Storefront configuration rejected. See coordinates for details.");
+                setDbSaveStatus('error');
+                setDbSaveErrorDetail(data.error || JSON.stringify(data));
+                setIsSaving(false);
+                return;
+              }
+            } else if (!isNewUser && originalSlug !== slug) {
+              const response = await fetch('https://www.pharmastackx.com/api/auth-desktop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                  action: 'update',
+                  oldSlug: originalSlug,
+                  slug: slug,
+                  pharmacyName: name,
+                  coordinates: coordinates
+                })
+              });
+              const data = await response.json();
+              if (!data.success) {
+                setSetupError("Failed to update storefront link. It might be taken.");
                 setDbSaveStatus('error');
                 setDbSaveErrorDetail(data.error || JSON.stringify(data));
                 setIsSaving(false);

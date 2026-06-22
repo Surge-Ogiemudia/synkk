@@ -331,7 +331,7 @@ export function setupIpc() {
     return getStore('pairing');
   });
 
-  ipcMain.handle('update-csv-path', async (event) => {
+ipcMain.handle('update-csv-path', async (event) => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openFile'],
       filters: [{ name: 'CSV Files', extensions: ['csv'] }]
@@ -764,6 +764,196 @@ export function setupIpc() {
     } catch (err: any) {
       console.error('Kill session error:', err);
       return { success: false, error: err.message };
+    }
+  });
+
+  // ── Epic 1: Silent Observation (Bubble Mode) ──────────────────────────
+  // Opens a background Electron window, watches for network traffic matching
+  // pharmacy/inventory patterns, and returns the captured payload to the UI.
+  ipcMain.handle('start-silent-observation', async (_event, { posNameHint }: { posNameHint?: string }) => {
+    return new Promise<any>((resolve, reject) => {
+      console.log('[BubbleMode] Starting silent observation...', { posNameHint });
+
+      // Create a minimal invisible window to intercept network traffic
+      const observerWin = new BrowserWindow({
+        width: 1280,
+        height: 900,
+        show: false, // completely invisible
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          webSecurity: false,
+        },
+      });
+
+      const OBSERVATION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+      let resolved = false;
+      const safeResolve = (value: any) => {
+        if (!resolved) {
+          resolved = true;
+          if (!observerWin.isDestroyed()) observerWin.destroy();
+          resolve(value);
+        }
+      };
+
+      // Intercept JSON responses that look like inventory data
+      observerWin.webContents.session.webRequest.onCompleted(
+        { urls: ['<all_urls>'] },
+        async (details) => {
+          if (resolved) return;
+          const ct = details.responseHeaders?.['content-type']?.[0] || '';
+          if (!ct.includes('application/json')) return;
+          // Look for endpoints with inventory-like keywords
+          const url = details.url.toLowerCase();
+          const inventoryKeywords = ['product', 'inventory', 'stock', 'item', 'medicine', 'drug', 'catalog'];
+          if (!inventoryKeywords.some(kw => url.includes(kw))) return;
+          if (details.statusCode !== 200) return;
+
+          console.log('[BubbleMode] Promising inventory URL intercepted:', details.url);
+
+          // Re-fetch via main process to read the body
+          try {
+            const res = await fetch(details.url, { headers: { 'Accept': 'application/json' } });
+            if (!res.ok) return;
+            const payload = await res.json();
+            const arr = Array.isArray(payload) ? payload : (payload.data || payload.items || payload.products || payload.inventory || []);
+            if (!Array.isArray(arr) || arr.length < 3) return;
+
+            // Quick heuristic: does each object have a name-like key?
+            const sampleItem = arr[0];
+            const hasName = Object.keys(sampleItem).some(k =>
+              ['name', 'title', 'product', 'medicine', 'drug', 'item_name', 'description'].includes(k.toLowerCase())
+            );
+            if (!hasName) return;
+
+            console.log(`[BubbleMode] Found ${arr.length} items via network intercept!`);
+            safeResolve({
+              method: 'network',
+              itemCount: arr.length,
+              posName: posNameHint || 'Unknown POS',
+              items: arr.slice(0, 5000), // cap
+            });
+          } catch (e) {
+            // Silently ignore fetch errors
+          }
+        }
+      );
+
+      // Timeout fallback
+      setTimeout(() => {
+        if (!resolved) {
+          console.log('[BubbleMode] Observation timed out with no results.');
+          safeResolve({ method: 'network', itemCount: 0, posName: '', items: [] });
+        }
+      }, OBSERVATION_TIMEOUT_MS);
+    });
+  });
+
+  // Watch User Open App (Process Watcher)
+  const { processWatcher } = require('./process-watcher');
+
+  ipcMain.handle('take-process-snapshot', async () => {
+    try {
+      await processWatcher.takeSnapshot();
+      return { success: true };
+    } catch (e: any) {
+      console.error('Snapshot error:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('start-process-watch', async (event) => {
+    try {
+      const result = await processWatcher.watchForNewApp(60000, (appName) => {
+        event.sender.send('process-watch-status', appName);
+      }); // 60 seconds
+      return result;
+    } catch (e: any) {
+      console.error('Process watch error:', e);
+      return { type: 'error', details: e.message };
+    }
+  });
+
+  ipcMain.handle('stop-process-watch', () => {
+    processWatcher.stop();
+    return { success: true };
+  });
+
+  // Floating Bubble Widget
+  const { launchBubbleWidget, closeBubbleWidget } = require('./bubble-widget');
+  
+  ipcMain.handle('launch-bubble-widget', async (event, posNameHint) => {
+    // Hide the main window
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) win.hide();
+    
+    launchBubbleWidget(posNameHint);
+    return { success: true };
+  });
+
+  ipcMain.on('bubble-completed', (event, data) => {
+    closeBubbleWidget();
+    
+    // Restore the main window and navigate it to /analysis
+    const wins = BrowserWindow.getAllWindows();
+    // Assuming the largest window or the first one created is the main one. 
+    // Usually getAllWindows() returns them in order, or we can look for one that is NOT always on top.
+    const mainWin = wins.find(w => !w.isAlwaysOnTop());
+    
+    if (mainWin) {
+      mainWin.show();
+      mainWin.focus();
+      mainWin.webContents.send('navigate-to', {
+        path: '/analysis',
+        state: { method: 'bubble', capturedItems: data.items, posName: data.posName }
+      });
+    }
+  });
+
+  ipcMain.on('bubble-cancelled', () => {
+    closeBubbleWidget();
+    
+    const wins = BrowserWindow.getAllWindows();
+    const mainWin = wins.find(w => !w.isAlwaysOnTop());
+    if (mainWin) {
+      mainWin.show();
+      mainWin.focus();
+    }
+  });
+
+  ipcMain.on('bubble-pivot-local', (event, dbPath) => {
+    closeBubbleWidget();
+    
+    const wins = BrowserWindow.getAllWindows();
+    const mainWin = wins.find(w => !w.isAlwaysOnTop());
+    
+    if (mainWin) {
+      mainWin.show();
+      mainWin.focus();
+      mainWin.webContents.send('navigate-to', {
+        path: '/analysis',
+        state: { method: 'drop', filePath: dbPath }
+      });
+    }
+  });
+
+  ipcMain.on('bubble-pivot-web', (event) => {
+    closeBubbleWidget();
+    
+    const wins = BrowserWindow.getAllWindows();
+    const mainWin = wins.find(w => !w.isAlwaysOnTop());
+    
+    if (mainWin) {
+      mainWin.show();
+      mainWin.focus();
+      // Route back to Welcome, and maybe trigger a special state
+      // For now, navigating to / is fine, they can just click Web POS
+      // or we can pass a state to auto-open the Web POS URL input
+      mainWin.webContents.send('navigate-to', {
+        path: '/',
+        state: { autoFocusWebPos: true }
+      });
     }
   });
 }

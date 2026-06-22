@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { UploadCloud, Link as LinkIcon, Database, ArrowRight, HardDrive, Radio, Mail, Lock, User, Phone, Check } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { UploadCloud, Link as LinkIcon, Database, ArrowRight, ArrowLeft, HardDrive, Radio, Mail, Lock, User, Phone, Check, LogOut } from 'lucide-react';
+import StorefrontSetup from './StorefrontSetup';
+import BubbleMode from './BubbleMode';
+import POSTypeSelector from './POSTypeSelector';
+import ProcessWatcherOverlay from '../components/ProcessWatcherOverlay';
 
 interface DiscoveredPOS {
   name: string;
@@ -10,6 +14,8 @@ interface DiscoveredPOS {
 
 export default function Welcome() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const autoFocusWebPos = location.state?.autoFocusWebPos;
   
   // Auth State
   const [authState, setAuthState] = useState<'email_check' | 'register' | 'login' | 'authenticated'>('email_check');
@@ -26,6 +32,12 @@ export default function Welcome() {
   const [discoveredPOS, setDiscoveredPOS] = useState<DiscoveredPOS[]>([]);
   const [isScanning, setIsScanning] = useState(true);
   const [isRequestingSupport, setIsRequestingSupport] = useState(false);
+
+  // Epic 1: New onboarding flow state
+  const [showPOSTypeSelector, setShowPOSTypeSelector] = useState(!!autoFocusWebPos);
+  const [posNameHint, setPosNameHint] = useState('');
+  const [showBubble, setShowBubble] = useState(false);
+  const [showProcessWatcher, setShowProcessWatcher] = useState(false);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -50,6 +62,10 @@ export default function Welcome() {
 
   useEffect(() => {
     if (authState !== 'authenticated') return;
+    if (autoFocusWebPos) {
+      setIsScanning(false);
+      return;
+    }
 
     const scan = async () => {
       setIsScanning(true);
@@ -235,9 +251,13 @@ export default function Welcome() {
 
             {authState === 'login' && (
               <form onSubmit={handleLogin} className="flex flex-col gap-4 animate-in slide-in-from-right-4">
+                <div className="flex items-center mb-4">
+                  <button type="button" onClick={() => { setAuthState('email_check'); setAuthError(''); }} className="text-sm text-slate-400 hover:text-white flex items-center gap-2 transition-colors">
+                    <ArrowLeft className="w-4 h-4" /> Back to Email
+                  </button>
+                </div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-slate-300">Welcome back!</span>
-                  <button type="button" onClick={() => setAuthState('email_check')} className="text-xs text-emerald-400 hover:underline">Change Email</button>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
@@ -256,9 +276,13 @@ export default function Welcome() {
 
             {authState === 'register' && (
               <form onSubmit={handleRegister} className="flex flex-col gap-4 animate-in slide-in-from-right-4">
+                <div className="flex items-center mb-4">
+                  <button type="button" onClick={() => { setAuthState('email_check'); setAuthError(''); }} className="text-sm text-slate-400 hover:text-white flex items-center gap-2 transition-colors">
+                    <ArrowLeft className="w-4 h-4" /> Back to Email
+                  </button>
+                </div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-slate-300">Create your account</span>
-                  <button type="button" onClick={() => setAuthState('email_check')} className="text-xs text-emerald-400 hover:underline">Change Email</button>
                 </div>
                 
                 <div>
@@ -304,7 +328,22 @@ export default function Welcome() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center w-full animate-in fade-in zoom-in duration-500 pb-10 pt-10 px-4">
+    <div className="flex flex-col items-center justify-center w-full animate-in fade-in zoom-in duration-500 pb-10 pt-10 px-4 relative">
+      <button 
+        onClick={async () => {
+          // @ts-ignore
+          const { ipcRenderer } = window.require('electron');
+          await ipcRenderer.invoke('save-storefront-data', { slug: '', name: '', coordinates: null });
+          setAuthState('email_check');
+          setEmail('');
+          setPassword('');
+          setAuthError('');
+        }}
+        className="absolute top-4 right-4 text-slate-400 hover:text-white flex items-center gap-2 text-sm bg-slate-800/50 hover:bg-slate-800 px-4 py-2 rounded-xl transition-colors border border-slate-700/50"
+      >
+        <LogOut className="w-4 h-4" /> Sign Out
+      </button>
+
       <div className="mb-14 text-center">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 mb-6 shadow-[0_0_40px_rgba(16,185,129,0.3)]">
           <Database className="w-8 h-8 text-white" />
@@ -354,61 +393,73 @@ export default function Welcome() {
         </div>
       )}
 
-      <div className="w-full max-w-3xl mb-4 text-left">
-        <h2 className="text-lg font-medium text-slate-400">Manual Fallback Options</h2>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-3xl">
-        {/* Drop Zone / File Picker */}
-        <div 
-          onClick={async () => {
-            try {
-              // @ts-ignore
-              const { ipcRenderer } = window.require('electron');
-              const filePath = await ipcRenderer.invoke('open-file-dialog');
-              if (filePath) {
-                navigate('/analysis', { state: { method: 'drop', filePath } });
-              }
-            } catch (err) {
-              console.error(err);
-              alert("Error launching file picker.");
-            }
-          }}
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-          className={`glass-panel glass-panel-hover flex flex-col items-center justify-center p-10 rounded-3xl cursor-pointer relative overflow-hidden group ${isDragging ? 'border-emerald-500/50 bg-emerald-500/10 scale-[1.02]' : ''}`}
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-          <UploadCloud className={`w-14 h-14 mb-4 transition-colors duration-300 ${isDragging ? 'text-emerald-400' : 'text-slate-400 group-hover:text-emerald-400'}`} />
-          <h2 className="text-xl font-semibold text-white mb-2 text-center">Click or Drop database</h2>
-          <p className="text-sm text-slate-400 text-center">Select your POS SQLite, MySQL backup, or CSV export.</p>
-        </div>
-
-        {/* URL Input */}
-        <div className="glass-panel flex flex-col justify-center p-10 rounded-3xl relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent opacity-50"></div>
-          <div className="relative z-10">
-            <div className="w-12 h-12 rounded-xl bg-slate-800/80 flex items-center justify-center mb-6 border border-white/5">
-              <LinkIcon className="w-6 h-6 text-cyan-400" />
+      {/* Epic 1: When scan finds nothing — show POS Type Selector */}
+      {!isScanning && discoveredPOS.length === 0 && !showPOSTypeSelector && (
+        <div className="w-full max-w-3xl mb-8 animate-in slide-in-from-bottom-4 duration-500">
+          <div className="w-full bg-amber-500/8 border border-amber-500/20 rounded-2xl p-5 flex items-start gap-4">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+              <HardDrive className="w-5 h-5 text-amber-400" />
             </div>
-            <h2 className="text-xl font-semibold text-white mb-2">Connect web software</h2>
-            <p className="text-sm text-slate-400 mb-6">Paste your web POS link to sync directly via API polling.</p>
-            
-            <form onSubmit={handlePaste} className="relative group">
-              <input 
-                type="text" 
-                placeholder="https://mypharmacy.pos.com" 
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all"
-              />
-              <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-white/10 hover:bg-cyan-500/20 text-white rounded-lg transition-colors">
-                <ArrowRight className="w-4 h-4" />
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-amber-400 mb-1">No POS detected automatically</h3>
+              <p className="text-xs text-slate-400 leading-relaxed mb-3">
+                Synkk scanned your system but couldn't find a local database. Let's connect a different way.
+              </p>
+              <button
+                onClick={() => setShowPOSTypeSelector(true)}
+                className="text-xs font-semibold px-4 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 rounded-lg transition-colors border border-amber-500/20 flex items-center gap-2"
+              >
+                Help Synkk find my POS <ArrowRight className="w-3.5 h-3.5" />
               </button>
-            </form>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Epic 1: POS Type Selector screen */}
+      {(showPOSTypeSelector || autoFocusWebPos) && !showBubble && (
+        <div className="w-full max-w-3xl mb-8 animate-in slide-in-from-bottom-4 duration-500">
+          <POSTypeSelector
+            initialWebPos={autoFocusWebPos}
+            posName={posNameHint}
+            setPosName={setPosNameHint}
+            onBack={() => setShowPOSTypeSelector(false)}
+            onSelect={async (type, webUrl) => {
+              if (type === 'web-pos') {
+                if (webUrl?.trim()) {
+                  let finalUrl = webUrl.trim();
+                  if (!finalUrl.startsWith('http')) finalUrl = 'https://' + finalUrl;
+                  navigate('/web-scraper', { state: { url: finalUrl } });
+                }
+              } else if (type === 'local-app') {
+                // Trigger a deeper re-scan
+                setShowPOSTypeSelector(false);
+                setIsScanning(true);
+                try {
+                  // @ts-ignore
+                  const { ipcRenderer } = window.require('electron');
+                  const results = await ipcRenderer.invoke('scan-local-pos');
+                  setDiscoveredPOS(results);
+                  if (results.length === 0) {
+                    // Start the process watcher!
+                    setShowProcessWatcher(true);
+                  }
+                } catch (err) {
+                  console.error(err);
+                } finally {
+                  setIsScanning(false);
+                }
+              } else {
+                // 'unknown' — launch Bubble Mode Widget
+                setShowPOSTypeSelector(false);
+                // @ts-ignore
+                const { ipcRenderer } = window.require('electron');
+                ipcRenderer.invoke('launch-bubble-widget', posNameHint);
+              }
+            }}
+          />
+        </div>
+      )}
 
       {/* Support Section */}
       <div className="mt-12 mb-8 flex flex-col items-center w-full max-w-3xl">
@@ -443,6 +494,26 @@ export default function Welcome() {
           </button>
         )}
       </div>
+
+      {/* Epic 2: Process Watcher Overlay */}
+      {showProcessWatcher && (
+        <ProcessWatcherOverlay
+          onCancel={() => {
+            setShowProcessWatcher(false);
+            setShowPOSTypeSelector(true);
+          }}
+          onSuccess={(dbPath) => {
+            setShowProcessWatcher(false);
+            navigate('/analysis', { state: { method: 'drop', filePath: dbPath } });
+          }}
+          onPivotToWeb={() => {
+            setShowProcessWatcher(false);
+            // Reopen POSTypeSelector and we could pass a prop to auto-select web-pos,
+            // but for now, just reopening it is fine.
+            setShowPOSTypeSelector(true);
+          }}
+        />
+      )}
 
     </div>
   );
