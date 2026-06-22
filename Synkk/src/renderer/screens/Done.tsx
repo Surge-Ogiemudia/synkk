@@ -54,6 +54,16 @@ export default function Done() {
       }
     });
 
+    // Load initial settings
+    ipcRenderer.invoke('get-sync-frequency').then((freq: string) => {
+      if (freq) setSyncFreq(freq);
+    });
+    ipcRenderer.invoke('get-settings').then((settings: any) => {
+      if (settings && typeof settings.notifyOutOfStock !== 'undefined') {
+        setNotifyOutOfStock(settings.notifyOutOfStock);
+      }
+    });
+
     // Initialize global Pusher natively in the browser process where WebSockets work flawlessly
     if (!globalPusher && slug !== 'my-pharmacy') {
       console.log('Initializing Native Web Pusher for:', slug);

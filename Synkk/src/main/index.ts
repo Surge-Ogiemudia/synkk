@@ -6,6 +6,7 @@ import { setupIpc } from './ipc';
 import { startScheduler } from './scheduler';
 import { initializePusher, disconnectPusher } from './pusher';
 import { store } from '../store/local';
+import { startRemoteConfigPoller, stopRemoteConfigPoller } from './remote-config';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -47,20 +48,23 @@ function createWindow() {
     const storefront = store.get('storefront') as any;
     const initialSlug = storefront?.slug;
     if (initialSlug) {
-      console.log('Found saved pharmacy slug, starting Sync Scheduler and Pusher Listener...', initialSlug);
+      console.log('Found saved pharmacy slug, starting Sync Scheduler, Pusher Listener and Remote Config Poller...', initialSlug);
       startScheduler(initialSlug as string);
       initializePusher(initialSlug as string, mainWindow);
+      startRemoteConfigPoller();
     }
   });
 
   // Watch for slug updates from the renderer (when user registers/claims a storefront)
   store.onDidChange('storefront', (newValue: any) => {
     if (newValue && newValue.slug) {
-      console.log('Pharmacy slug changed, restarting Sync Scheduler and Pusher...', newValue.slug);
+      console.log('Pharmacy slug changed, restarting Sync Scheduler, Pusher and Remote Config Poller...', newValue.slug);
       startScheduler(newValue.slug as string);
       initializePusher(newValue.slug as string, mainWindow);
+      startRemoteConfigPoller();
     } else {
       disconnectPusher();
+      stopRemoteConfigPoller();
     }
   });
 

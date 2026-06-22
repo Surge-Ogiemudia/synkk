@@ -1,7 +1,7 @@
 ﻿import { getStore, setStore } from '../store/local';
 import { updateTrayStatus } from './tray';
 import { sendFailureAlertEmail } from './mailer';
-import { net, safeStorage, BrowserWindow, app } from 'electron';
+import { net, safeStorage, BrowserWindow, app, session } from 'electron';
 import { reportSessionExpired } from './remote-config';
 import { lookupKnownMethod, reportSuccessfulMethod, applyKnownMethod } from './collective-intelligence';
 import { startLiveBroadcast } from './live-broadcast';
@@ -308,14 +308,10 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
             timeout: 15000
           });
           
-          // CRITICAL: Update local map incrementally so autonomous retries or failed syncs 
-          // do not re-upload the same items in a subsequent loop!
+          // Update local map incrementally so autonomous retries don't re-upload the same items
           for (const currentItem of streamUpdates) {
             lastMap.set(currentItem.name, currentItem);
           }
-          const { setStore } = require('./ipc');
-          setStore('lastSyncSnapshot', Array.from(lastMap.values()));
-          
         } catch (e: any) {
           console.error('Stream batch push failed:', e.message);
         }
@@ -654,12 +650,141 @@ async function extractFromLocalDB(dbPath: string, schema: any): Promise<any[]> {
   }
 }
 
+// ── Auto-Relogin Helper ───────────────────────────────────────────────
+async function attemptAutoLogin(win: BrowserWindow): Promise<boolean> {
+  try {
+    const currentUrl = win.webContents.getURL();
+    const isLoginPage = /login|signin|sign-in|auth|logout/i.test(currentUrl);
+    if (!isLoginPage) return true; // Already logged in
+
+    const storedCreds = getStore('webPosCredentials') as any;
+    if (!storedCreds?.encUser || !storedCreds?.encPass) {
+      broadcastSyncStream('[AUTO-LOGIN] Session expired but no saved credentials found. User must log in via the POS browser screen.');
+      reportSessionExpired();
+      return false;
+    }
+
+    if (!safeStorage.isEncryptionAvailable()) return false;
+
+    const username = safeStorage.decryptString(Buffer.from(storedCreds.encUser, 'base64'));
+    const password = safeStorage.decryptString(Buffer.from(storedCreds.encPass, 'base64'));
+
+    broadcastSyncStream('[AUTO-LOGIN] Session expired — injecting saved credentials...');
+
+    const escapedUser = username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const escapedPass = password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const inputs = document.querySelectorAll('input');
+        let userField = null, passField = null;
+        inputs.forEach(inp => {
+          if (inp.type === 'password') passField = inp;
+          else if (inp.type === 'text' || inp.type === 'email') userField = inp;
+        });
+        function setNative(el, val) {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+          if (setter) setter.call(el, val);
+          else el.value = val;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (userField) setNative(userField, '${escapedUser}');
+        if (passField) setNative(passField, '${escapedPass}');
+        const form = passField?.closest('form') || userField?.closest('form');
+        if (form) {
+          const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]') || form.querySelector('button');
+          if (submitBtn) submitBtn.click();
+          else form.submit();
+        }
+      })();
+    `);
+
+    // Wait for navigation after login submit
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 10000);
+      win.webContents.once('dom-ready', () => { clearTimeout(timer); resolve(); });
+    });
+    await new Promise(r => setTimeout(r, 3000));
+
+    const newUrl = win.webContents.getURL();
+    const stillOnLogin = /login|signin|sign-in|auth/i.test(newUrl);
+    if (stillOnLogin) {
+      broadcastSyncStream('[AUTO-LOGIN] Credentials did not work — user must log in manually via the POS browser screen.');
+      reportSessionExpired();
+      return false;
+    }
+
+    broadcastSyncStream('[AUTO-LOGIN] ✓ Successfully logged in using saved credentials.');
+    return true;
+  } catch (e: any) {
+    broadcastSyncStream(`[AUTO-LOGIN] Error during auto-login: ${e.message}`);
+    return false;
+  }
+}
+
 // ── Core Extraction: Web POS (Agent-Based) ───────────────────────────
 const PSX_AGENT_ENDPOINT = 'https://www.pharmastackx.com/api/synkk-ai/agent';
-const MAX_AGENT_TURNS = 25; // safety cap on agent loop
+const MAX_AGENT_TURNS = 60; // safety cap on agent loop
 
 async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (batch: any[]) => Promise<void>): Promise<{ items: any[], tier: number }> {
-  broadcastSyncProgress(40, 'Starting AI agent extraction...');
+  broadcastSyncProgress(40, 'Starting extraction...');
+
+  // Fast path: use cached script from previous agent discovery — no AI needed
+  const pairingData = getStore('pairing') as any;
+  if (pairingData?.cachedScript) {
+    broadcastSyncStream(`[CACHE] Using saved extraction script (${pairingData.cachedMethod}). Skipping AI entirely.`);
+    const fastWindow = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true, partition: 'persist:synkk-webpos' } });
+    try {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 20000);
+        fastWindow.webContents.once('dom-ready', () => { clearTimeout(timer); resolve(); });
+        fastWindow.loadURL(url).catch(() => { clearTimeout(timer); resolve(); });
+      });
+      await new Promise(r => setTimeout(r, 5000));
+
+      // Auto-login if session expired
+      const cacheLoginOk = await attemptAutoLogin(fastWindow);
+      if (!cacheLoginOk) {
+        if (!fastWindow.isDestroyed()) fastWindow.destroy();
+        broadcastSyncStream('[CACHE] Session expired and auto-login failed — falling back to agent for fresh login attempt.');
+        // Don't throw here — fall through to the full agent which will also try auto-login
+      }
+
+      let rawResult = await fastWindow.webContents.executeJavaScript(pairingData.cachedScript);
+      if (!fastWindow.isDestroyed()) fastWindow.destroy();
+
+      // Handle DataTables envelope { data: [...] } in addition to plain arrays
+      let items: any[] = [];
+      if (Array.isArray(rawResult) && rawResult.length > 0) {
+        items = rawResult;
+      } else if (rawResult && typeof rawResult === 'object' && Array.isArray(rawResult.data) && rawResult.data.length > 0) {
+        items = rawResult.data.map((row: any) => {
+          const nameRaw = row.product || row.name || (Array.isArray(row) ? row[1] : '') || '';
+          const priceRaw = row.selling_price || row.price || (Array.isArray(row) ? row[4] : '') || '0';
+          const qtyRaw = row.current_stock || row.qty || row.stock || (Array.isArray(row) ? row[5] : '') || '0';
+          const name = String(nameRaw).replace(/<[^>]*>/g, '').trim();
+          const price = parseFloat(String(priceRaw).replace(/[^0-9.]/g, '')) || 0;
+          const qty = parseFloat(String(qtyRaw).replace(/[^0-9.]/g, '')) || 0;
+          return { name, qty, price };
+        }).filter((item: any) => item.name && item.name.length > 1 && !item.name.toLowerCase().includes('action'));
+      }
+
+      if (items.length > 0) {
+        broadcastSyncStream(`[CACHE] ✓ Got ${items.length} items from cached script.`);
+        broadcastSyncProgress(85, `Extracted ${items.length} items.`);
+        if (onBatchExtracted) {
+          for (let i = 0; i < items.length; i += 100) await onBatchExtracted(items.slice(i, i + 100));
+        }
+        return { items, tier: 1 };
+      }
+      broadcastSyncStream(`[CACHE] Cached script returned no items — falling back to agent.`);
+    } catch (cacheErr: any) {
+      broadcastSyncStream(`[CACHE] Cached script failed (${cacheErr.message}) — falling back to agent.`);
+      if (!fastWindow.isDestroyed()) fastWindow.destroy();
+    }
+  }
+
   broadcastSyncStream('[AGENT] Synkk AI is booting up. Opening hidden browser...');
 
   const hiddenWindow = new BrowserWindow({
@@ -667,16 +792,20 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      partition: 'persist:synkk-webpos',
     },
   });
 
   startLiveBroadcast(hiddenWindow);
 
-  // Intercept network traffic immediately so agent can see API calls made during page load
+  // Intercept network traffic via CDP debugger
   const interceptedRequests: Array<{ url: string; body: any }> = [];
   try {
     hiddenWindow.webContents.debugger.attach('1.3');
-    await hiddenWindow.webContents.debugger.sendCommand('Network.enable');
+    await Promise.race([
+      hiddenWindow.webContents.debugger.sendCommand('Network.enable'),
+      new Promise((_, r) => setTimeout(() => r(new Error('debugger timeout')), 3000))
+    ]);
     hiddenWindow.webContents.debugger.on('message', (_event, method, params) => {
       if (method === 'Network.responseReceived' && params.response.mimeType?.includes('json')) {
         hiddenWindow.webContents.debugger.sendCommand('Network.getResponseBody', { requestId: params.requestId })
@@ -695,10 +824,68 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
     });
   } catch (_) {}
 
-  // Navigate to the POS URL
-  await hiddenWindow.loadURL(url).catch(() => {});
-  // Give the page 8 seconds to load and fire its API calls
-  await new Promise(r => setTimeout(r, 8000));
+  // Re-inject XHR/fetch interceptor on every page load (dom-ready fires after each navigation,
+  // which resets the JS context — injecting before loadURL only covers about:blank)
+  const INTERCEPTOR_SCRIPT = `
+    if (!window.__synkk_patched) {
+      window.__synkk_patched = true;
+      window.__synkk_intercepted = window.__synkk_intercepted || [];
+      const _origOpen = XMLHttpRequest.prototype.open;
+      const _origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(method, url) {
+        this._synkk_url = url;
+        return _origOpen.apply(this, arguments);
+      };
+      XMLHttpRequest.prototype.send = function() {
+        this.addEventListener('load', function() {
+          try {
+            if (this.responseText && this.responseText.length > 200) {
+              const json = JSON.parse(this.responseText);
+              window.__synkk_intercepted.push({ url: this._synkk_url, body: json });
+            }
+          } catch(_) {}
+        });
+        return _origSend.apply(this, arguments);
+      };
+      const _origFetch = window.fetch;
+      window.fetch = async function(...args) {
+        const res = await _origFetch(...args);
+        try {
+          const clone = res.clone();
+          const text = await clone.text();
+          if (text.length > 200) {
+            const json = JSON.parse(text);
+            window.__synkk_intercepted.push({ url: typeof args[0] === 'string' ? args[0] : args[0]?.url || '', body: json });
+          }
+        } catch(_) {}
+        return res;
+      };
+    }
+    true;
+  `;
+
+  hiddenWindow.webContents.on('dom-ready', () => {
+    hiddenWindow.webContents.executeJavaScript(INTERCEPTOR_SCRIPT).catch(() => {});
+  });
+
+  // Navigate to the POS URL — wait for dom-ready or 20s timeout, whichever comes first
+  broadcastSyncStream(`[AGENT] Navigating to ${url}...`);
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 20000);
+    hiddenWindow.webContents.once('dom-ready', () => { clearTimeout(timer); resolve(); });
+    hiddenWindow.loadURL(url).catch(() => { clearTimeout(timer); resolve(); });
+  });
+  // Extra settle time for SPAs and API calls to fire
+  await new Promise(r => setTimeout(r, 5000));
+
+  // If we landed on a login page (session expired), try to auto-login with saved credentials
+  const loginOk = await attemptAutoLogin(hiddenWindow);
+  if (!loginOk) {
+    if (!hiddenWindow.isDestroyed()) hiddenWindow.destroy();
+    throw new Error('ALL_TIERS_FAILED: Session expired and auto-login failed. User must log in via the Web POS screen in Synkk.');
+  }
+
+  broadcastSyncStream('[AGENT] Page loaded. Starting agent loop...');
 
   // ── Agent Loop ────────────────────────────────────────────────────────
   let messages: any[] = [];
@@ -708,19 +895,14 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
     while (turns < MAX_AGENT_TURNS) {
       turns++;
       broadcastSyncStream(`[AGENT] Turn ${turns}/${MAX_AGENT_TURNS} — thinking...`);
+      if (turns > 1) await new Promise(r => setTimeout(r, 7000)); // stay under 10 RPM free tier
 
-      const response = await fetch(PSX_AGENT_ENDPOINT, {
-        method: 'POST',
+      const axios = require('axios');
+      const agentResponse = await axios.post(PSX_AGENT_ENDPOINT, { messages, url }, {
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, url }),
+        timeout: 120000,
       });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(`Agent endpoint error ${response.status}: ${err.error || response.statusText}`);
-      }
-
-      const result = await response.json();
+      const result = agentResponse.data;
 
       // Always update messages with what the agent returned
       messages = result.messages || messages;
@@ -728,6 +910,14 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
       if (result.type === 'done') {
         broadcastSyncStream(`[AGENT] ✓ Extraction complete via "${result.method}". Got ${result.items.length} items.`);
         broadcastSyncProgress(85, `Agent extracted ${result.items.length} items.`);
+
+        // Save the winning script so future syncs skip the agent entirely
+        if (result.script) {
+          const pairingData = getStore('pairing') as any;
+          setStore('pairing', { ...pairingData, cachedScript: result.script, cachedMethod: result.method });
+          broadcastSyncStream(`[AGENT] Saved extraction script for future syncs — no AI needed next time.`);
+        }
+
         if (!hiddenWindow.isDestroyed()) hiddenWindow.destroy();
 
         // Progressive stream to cloud if handler provided
@@ -762,27 +952,65 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
             toolResult = { success: true, message: `Navigated to ${args.url}` };
 
           } else if (tool === 'get_network_traffic') {
-            toolResult = interceptedRequests.length > 0
-              ? { found: interceptedRequests.length, requests: interceptedRequests.slice(0, 10) }
+            const pageIntercepted = await hiddenWindow.webContents.executeJavaScript(`window.__synkk_intercepted || []`).catch(() => []);
+            const allIntercepted = [...interceptedRequests, ...(Array.isArray(pageIntercepted) ? pageIntercepted : [])];
+            toolResult = allIntercepted.length > 0
+              ? { found: allIntercepted.length, requests: allIntercepted.slice(0, 10) }
               : { found: 0, message: 'No JSON API calls intercepted yet.' };
 
           } else if (tool === 'read_page_dom') {
             const text = await hiddenWindow.webContents.executeJavaScript(`document.body.innerText`);
-            toolResult = { text: (text as string).slice(0, 20000) };
+            toolResult = { text: (text as string).slice(0, 6000) };
 
           } else if (tool === 'execute_script') {
             const scriptResult = await hiddenWindow.webContents.executeJavaScript(args.script);
-            // Allow extra time for async scripts that trigger UI changes
-            await new Promise(r => setTimeout(r, 3000));
-            toolResult = { result: scriptResult };
+            // Allow extra time for async scripts and DataTables AJAX reloads
+            await new Promise(r => setTimeout(r, 8000));
+
+            // If we got a DataTables response with lots of rows, extract and finish immediately.
+            // Sending 6000 rows back through the agent makes an 18MB payload that times out.
+            if (scriptResult && typeof scriptResult === 'object' && Array.isArray(scriptResult.data) && scriptResult.data.length > 50) {
+              broadcastSyncStream(`[AGENT] DataTables response detected (${scriptResult.data.length} rows) — extracting locally...`);
+              const rawData: any[] = scriptResult.data;
+              const extractedItems = rawData.map((row: any) => {
+                const nameRaw = row.product || row.name || (Array.isArray(row) ? row[1] : '') || '';
+                const priceRaw = row.selling_price || row.price || (Array.isArray(row) ? row[4] : '') || '0';
+                const qtyRaw = row.current_stock || row.qty || row.stock || (Array.isArray(row) ? row[5] : '') || '0';
+                const name = String(nameRaw).replace(/<[^>]*>/g, '').trim();
+                const price = parseFloat(String(priceRaw).replace(/[^0-9.]/g, '')) || 0;
+                const qty = parseFloat(String(qtyRaw).replace(/[^0-9.]/g, '')) || 0;
+                return { name, qty, price };
+              }).filter((item: any) => item.name && item.name.length > 1 && !item.name.toLowerCase().includes('action'));
+
+              if (extractedItems.length > 100) {
+                broadcastSyncStream(`[AGENT] ✓ Extracted ${extractedItems.length} items from DataTables. Finishing.`);
+                if (!hiddenWindow.isDestroyed()) hiddenWindow.destroy();
+                if (onBatchExtracted && extractedItems.length > 0) {
+                  for (let i = 0; i < extractedItems.length; i += 100) await onBatchExtracted(extractedItems.slice(i, i + 100));
+                }
+                broadcastSyncProgress(85, `Extracted ${extractedItems.length} items.`);
+                // Cache the winning script
+                const pd = getStore('pairing') as any;
+                if (args.script) {
+                  setStore('pairing', { ...pd, cachedScript: args.script, cachedMethod: 'DataTables API (auto-detected)' });
+                  broadcastSyncStream(`[AGENT] Saved extraction script — no AI needed next time.`);
+                }
+                return { items: extractedItems, tier: 2 };
+              }
+            }
+
+            // Truncate large results before storing in agent messages (prevents 18MB payloads)
+            let resultForAgent = scriptResult;
+            const resultStr = JSON.stringify(scriptResult);
+            if (resultStr.length > 5000) {
+              resultForAgent = { truncated: true, preview: resultStr.slice(0, 500), length: resultStr.length };
+            }
+            toolResult = { result: resultForAgent };
 
           } else if (tool === 'fetch_directly') {
-            const fetchResponse = await fetch(args.url, {
-              method: args.method || 'GET',
-              headers: args.headers || {},
-            });
-            const data = await fetchResponse.json();
-            toolResult = { status: fetchResponse.status, data };
+            const axios = require('axios');
+            const fetchResponse = await axios({ url: args.url, method: args.method || 'GET', headers: args.headers || {}, timeout: 30000 });
+            toolResult = { status: fetchResponse.status, data: fetchResponse.data };
 
           } else if (tool === 'screenshot') {
             const image = await hiddenWindow.webContents.capturePage();
@@ -798,16 +1026,17 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
 
         broadcastSyncStream(`[AGENT] ← Tool result: ${JSON.stringify(toolResult).slice(0, 120)}...`);
 
-        // Append the tool result to messages for next turn
+        // Append the tool result in Gemini format
         messages = [
           ...messages,
           {
             role: 'user',
-            content: [
+            parts: [
               {
-                type: 'tool_result',
-                tool_use_id: toolUseId,
-                content: JSON.stringify(toolResult),
+                functionResponse: {
+                  name: tool,
+                  response: { result: toolResult },
+                },
               },
             ],
           },
@@ -818,6 +1047,8 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
     throw new Error('ALL_TIERS_FAILED: Agent exceeded maximum turns without finishing.');
 
   } catch (err: any) {
+    console.error('[AGENT] Fatal error in agent loop:', err.message, err.stack);
+    broadcastSyncStream(`[AGENT] Fatal error: ${err.message}`);
     if (!hiddenWindow.isDestroyed()) hiddenWindow.destroy();
     throw err;
   }
