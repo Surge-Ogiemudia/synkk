@@ -18,7 +18,7 @@ export default function Welcome() {
   const autoFocusWebPos = location.state?.autoFocusWebPos;
   
   // Auth State
-  const [authState, setAuthState] = useState<'email_check' | 'register' | 'login' | 'authenticated'>('email_check');
+  const [authState, setAuthState] = useState<'email_check' | 'register' | 'login' | 'authenticated'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pharmacyName, setPharmacyName] = useState('');
@@ -109,26 +109,33 @@ export default function Welcome() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password) return;
+    if (!password || !email) return;
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await fetch('https://www.pharmastackx.com/api/auth-desktop', {
+      const isEmail = email.includes('@');
+      const res = await fetch('https://www.psx.ng/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'login', email, password })
+        body: JSON.stringify({ 
+          email: isEmail ? email : undefined,
+          phoneNumber: !isEmail ? email : undefined,
+          password 
+        })
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.token) {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
-        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: data.name || 'My Pharmacy', coordinates: null, isNewUser: false });
+        await ipcRenderer.invoke('set-session-cookie', { token: data.token });
+        await ipcRenderer.invoke('save-storefront-data', { slug: data.user.slug || 'local', name: data.user.businessName || 'My Pharmacy', coordinates: null, isNewUser: false });
+        await ipcRenderer.invoke('save-psx-credentials', { email, password });
         navigate('/dashboard');
       } else {
         setAuthError(data.error || 'Login failed.');
       }
-    } catch (err) {
-      setAuthError('Network error. Please try again.');
+    } catch (err: any) {
+      setAuthError(`Network error: ${err.message || 'Please try again'}`);
     } finally {
       setAuthLoading(false);
     }
@@ -210,7 +217,7 @@ export default function Welcome() {
             Connect to <span className="gradient-text">PharmaStackX</span>
           </h1>
           <p className="text-slate-400 font-light max-w-sm mx-auto">
-            Let's secure your connection before we sync your inventory.
+            Sign in to access your dashboard, POS, EMR, and storefront.
           </p>
         </div>
 
@@ -257,19 +264,42 @@ export default function Welcome() {
                   </button>
                 </div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-slate-300">Welcome back!</span>
+                  <span className="text-sm text-slate-300">Sign in to your account</span>
                 </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Email or Phone Number</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                    <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                      placeholder="Email or Phone number" />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                    <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                    <input type={showPassword ? "text" : "password"} required value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-12 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
                       placeholder="••••••••" />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 z-50 p-1 text-slate-400 hover:text-white transition-colors cursor-pointer bg-transparent border-none outline-none flex items-center justify-center">
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
                   </div>
                 </div>
                 <button type="submit" disabled={authLoading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors mt-2 disabled:opacity-50">
                   {authLoading ? 'Logging in...' : 'Log In & Connect'} <Check className="w-4 h-4" />
+                </button>
+
+                <div className="relative flex items-center py-2 mt-2">
+                  <div className="flex-grow border-t border-slate-700"></div>
+                  <span className="flex-shrink-0 mx-4 text-slate-500 text-xs uppercase tracking-wider">Or</span>
+                  <div className="flex-grow border-t border-slate-700"></div>
+                </div>
+                <button type="button" onClick={handleGuestMode} disabled={authLoading} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors border border-slate-700 disabled:opacity-50">
+                  {authLoading ? 'Creating Guest...' : 'Continue as Guest'}
                 </button>
               </form>
             )}
