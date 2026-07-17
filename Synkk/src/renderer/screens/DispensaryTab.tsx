@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 
 export default function DispensaryTab() {
   // Use local if you are testing EMR locally on 3001, else production
-  const emrDispensaryUrl = import.meta.env.DEV ? 'http://localhost:3000/dispensary' : 'https://emr.psx.ng/dispensary'; 
+  const emrDispensaryUrl = 'https://emr.psx.ng/dispensary'; 
   const webviewRef = useRef<any>(null);
 
   useEffect(() => {

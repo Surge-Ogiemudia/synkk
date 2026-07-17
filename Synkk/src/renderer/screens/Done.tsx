@@ -600,7 +600,7 @@ export default function Done() {
                 onClick={() => {
                   // @ts-ignore
                   const { shell } = window.require('electron');
-                  const baseUrl = import.meta.env.DEV ? 'http://localhost:3000' : 'https://www.psx.ng';
+                  const baseUrl = 'https://www.psx.ng';
                   const targetUrl = slug.startsWith('guest-')
                     ? `${baseUrl}/auth?claim_slug=${slug}&view=storeManagement`
                     : `${baseUrl}/?view=storeManagement`;

@@ -69,6 +69,35 @@ export function setupIpc() {
     }
   });
 
+  ipcMain.handle('set-session-cookie', async (event, { token }) => {
+    try {
+      const cookieStore = session.defaultSession.cookies;
+      const expirationDate = Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7);
+
+      await cookieStore.set({
+        url: 'https://psx.ng',
+        name: 'session_token',
+        value: token,
+        domain: '.psx.ng',
+        path: '/',
+        secure: true,
+        httpOnly: true,
+        expirationDate
+      });
+      await cookieStore.set({
+        url: 'http://localhost',
+        name: 'session_token',
+        value: token,
+        path: '/',
+        expirationDate
+      });
+      return { success: true };
+    } catch (e: any) {
+      console.error('Failed to set session cookie:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('scan-local-pos', async () => {
     return await scanForPOS();
   });
@@ -784,7 +813,7 @@ ipcMain.handle('update-csv-path', async (event) => {
         const slug = storefront?.slug;
 
         if (slug) {
-          const baseUrl = process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : 'https://www.pharmastackx.com';
+          const baseUrl = 'https://www.pharmastackx.com';
           const response = await fetch(`${baseUrl}/api/admin/pharmacy/web-pos-backup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

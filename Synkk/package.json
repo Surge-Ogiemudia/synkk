@@ -1,9 +1,9 @@
 {
-  "name": "synkk",
+  "name": "pharmastackx-terminal",
   "private": true,
   "version": "1.2.4",
   "author": "PharmaStackX",
-  "description": "PharmaStackX Auto-Sync Client",
+  "description": "PharmaStackX Pro Terminal",
   "main": "dist-main/index.js",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"tsup --watch --onSuccess \\\"electron .\\\"\"",
