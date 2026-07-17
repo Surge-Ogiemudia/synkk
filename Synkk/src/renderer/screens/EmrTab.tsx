@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 
 export default function EmrTab() {
-  const emrUrl = import.meta.env.DEV ? 'http://localhost:3000' : 'https://www.psx.ng';
+  const emrUrl = import.meta.env.DEV ? 'http://localhost:3000' : 'https://emr.psx.ng';
   const webviewRef = useRef<any>(null);
 
   useEffect(() => {
