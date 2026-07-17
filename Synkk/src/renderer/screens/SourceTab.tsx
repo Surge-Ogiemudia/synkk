@@ -64,6 +64,14 @@ export default function SourceTab({ slug }: { slug: string }) {
   return (
     <div className="flex flex-col w-full h-[500px]">
       
+      {/* Descriptive Header */}
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-white mb-2">B2B Sourcing</h2>
+        <p className="text-slate-400 text-sm">
+          To help patients check which nearest pharmacy has the medicine they need.
+        </p>
+      </div>
+
       {/* Search Header */}
       <form onSubmit={handleSearch} className="relative mb-6">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">

@@ -24,9 +24,10 @@ function createWindow() {
     icon: path.join(__dirname, '../public/icon.png'),
   });
 
-  // Force the window to be maximized
-  // Note: setResizable(false) breaks maximize() on Windows, so we remove it.
-  mainWindow.maximize();
+  const isHiddenBoot = process.argv.includes('--hidden-on-boot');
+  if (!isHiddenBoot) {
+    mainWindow.maximize();
+  }
 
   // Load the React app
   // In development, we use the Vite dev server
@@ -47,22 +48,29 @@ function createWindow() {
     
     const storefront = store.get('storefront') as any;
     const initialSlug = storefront?.slug;
-    if (initialSlug) {
-      console.log('Found saved pharmacy slug, starting Sync Scheduler, Pusher Listener and Remote Config Poller...', initialSlug);
+    const appModules = store.get('appModules') as any;
+    
+    if (initialSlug && appModules?.synkk !== false) {
+      console.log('Found saved pharmacy slug and Synkk is enabled, starting background services...', initialSlug);
       startScheduler(initialSlug as string);
       initializePusher(initialSlug as string, mainWindow);
       startRemoteConfigPoller();
+    } else {
+      console.log('Synkk is disabled or slug is missing, sleeping.');
     }
   });
 
   // Watch for slug updates from the renderer (when user registers/claims a storefront)
   store.onDidChange('storefront', (newValue: any) => {
-    if (newValue && newValue.slug) {
-      console.log('Pharmacy slug changed, restarting Sync Scheduler, Pusher and Remote Config Poller...', newValue.slug);
+    const appModules = store.get('appModules') as any;
+    if (newValue && newValue.slug && appModules?.synkk !== false) {
+      console.log('Pharmacy slug changed and Synkk is enabled, restarting services...', newValue.slug);
       startScheduler(newValue.slug as string);
       initializePusher(newValue.slug as string, mainWindow);
       startRemoteConfigPoller();
     } else {
+      const { stopScheduler } = require('./scheduler');
+      stopScheduler();
       disconnectPusher();
       stopRemoteConfigPoller();
     }
@@ -81,6 +89,105 @@ function createWindow() {
   });
 
   let isQuitting = false;
+
+  mainWindow.on('maximize', () => {
+    if (mainWindow) {
+      // Fade out, resize, fade in
+      let opacity = 1;
+      const fadeOut = setInterval(() => {
+        opacity -= 0.15;
+        if (opacity <= 0) {
+          clearInterval(fadeOut);
+          mainWindow!.setOpacity(0);
+          
+          mainWindow!.setAlwaysOnTop(false);
+          mainWindow!.setMenuBarVisibility(true);
+          const route = (global as any).targetRoute || '/dashboard/dispensary';
+          mainWindow!.webContents.send('navigate-to', { path: route });
+          (global as any).targetRoute = null;
+          
+          // Small delay to let the maximize settle
+          setTimeout(() => {
+            let fadeInOpacity = 0;
+            const fadeIn = setInterval(() => {
+              fadeInOpacity += 0.15;
+              if (fadeInOpacity >= 1) {
+                clearInterval(fadeIn);
+                mainWindow!.setOpacity(1);
+              } else {
+                mainWindow!.setOpacity(fadeInOpacity);
+              }
+            }, 15);
+          }, 50);
+        } else {
+          mainWindow!.setOpacity(opacity);
+        }
+      }, 15);
+    }
+  });
+
+  let isTransformingToWidget = false;
+
+  const transformToWidget = () => {
+    if (!mainWindow) return;
+    isTransformingToWidget = true;
+    let opacity = 1;
+    const fadeOut = setInterval(() => {
+      opacity -= 0.15;
+      if (opacity <= 0) {
+        clearInterval(fadeOut);
+        mainWindow!.setOpacity(0);
+        
+        mainWindow!.unmaximize();
+        mainWindow!.setSize(245, 293);
+        mainWindow!.setMenuBarVisibility(false);
+        const { screen } = require('electron');
+        const primaryDisplay = screen.getPrimaryDisplay();
+        const { width, height } = primaryDisplay.workAreaSize;
+        mainWindow!.setPosition(width - 245 - 20, height - 293 - 20);
+        mainWindow!.setAlwaysOnTop(true);
+        mainWindow!.webContents.send('navigate-to', { path: '/mini-widget' });
+        
+        // Fade back in
+        setTimeout(() => {
+          let fadeInOpacity = 0;
+          const fadeIn = setInterval(() => {
+            fadeInOpacity += 0.15;
+            if (fadeInOpacity >= 1) {
+              clearInterval(fadeIn);
+              mainWindow!.setOpacity(1);
+              isTransformingToWidget = false;
+            } else {
+              mainWindow!.setOpacity(fadeInOpacity);
+            }
+          }, 15);
+        }, 50);
+      } else {
+        mainWindow!.setOpacity(opacity);
+      }
+    }, 15);
+  };
+
+  mainWindow.on('unmaximize', (e) => {
+    if (isTransformingToWidget || !mainWindow) return;
+    if (mainWindow.isAlwaysOnTop()) return; // Already in widget mode
+    transformToWidget();
+  });
+
+  mainWindow.on('minimize', (e) => {
+    if (!mainWindow) return;
+    if (mainWindow.isAlwaysOnTop()) {
+      // It's a widget! Let it truly minimize to the taskbar natively!
+      return;
+    }
+
+    // Otherwise, turn it into the widget
+    e.preventDefault();
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    transformToWidget();
+  });
 
   mainWindow.on('close', (e) => {
     if (!isQuitting) {

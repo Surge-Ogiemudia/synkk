@@ -76,7 +76,7 @@ export default function ManualOverride() {
       posIdentifier: pathOrUrl,
       schemaMapping: finalMapping
     });
-    navigate('/setup', { state: { pathOrUrl } });
+    navigate('/dashboard/synkk/setup', { state: { pathOrUrl } });
   };
 
   return (

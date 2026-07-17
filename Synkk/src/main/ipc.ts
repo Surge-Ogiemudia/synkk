@@ -1,4 +1,4 @@
-import { ipcMain, dialog, safeStorage, BrowserWindow, app, session } from 'electron';
+import { ipcMain, dialog, safeStorage, BrowserWindow, app, session, desktopCapturer } from 'electron';
 import { analyzePOSSystem } from '../brain/analyser';
 import { executeSync } from './sync';
 import { getStore, setStore } from '../store/local';
@@ -7,10 +7,59 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { scanForPOS } from './scanner';
+import { processWatcher } from './process-watcher';
 
 import { triggerUpdateCheck } from './updater';
 
 export function setupIpc() {
+  ipcMain.handle('set-view-mode', (event, mode: 'mini' | 'full', targetRoute?: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    
+    if (targetRoute) {
+      (global as any).targetRoute = targetRoute;
+    }
+
+    // Fade out
+    let opacity = 1;
+    const fadeOut = setInterval(() => {
+      opacity -= 0.15;
+      if (opacity <= 0) {
+        clearInterval(fadeOut);
+        win.setOpacity(0);
+        
+        // Resize while invisible
+        if (mode === 'mini') {
+          win.unmaximize();
+          win.setSize(245, 225);
+          win.setMenuBarVisibility(false);
+          const { screen } = require('electron');
+          const primaryDisplay = screen.getPrimaryDisplay();
+          const { width, height } = primaryDisplay.workAreaSize;
+          win.setPosition(width - 245 - 20, height - 225 - 20);
+          win.setAlwaysOnTop(true);
+        } else {
+          win.setAlwaysOnTop(false);
+          win.setMenuBarVisibility(true);
+          win.maximize();
+        }
+        
+        // Fade back in
+        let fadeInOpacity = 0;
+        const fadeIn = setInterval(() => {
+          fadeInOpacity += 0.15;
+          if (fadeInOpacity >= 1) {
+            clearInterval(fadeIn);
+            win.setOpacity(1);
+          } else {
+            win.setOpacity(fadeInOpacity);
+          }
+        }, 15);
+      } else {
+        win.setOpacity(opacity);
+      }
+    }, 15);
+  });
   ipcMain.handle('check-for-updates', async () => {
     try {
       await triggerUpdateCheck();
@@ -22,6 +71,22 @@ export function setupIpc() {
 
   ipcMain.handle('scan-local-pos', async () => {
     return await scanForPOS();
+  });
+
+  ipcMain.handle('deep-scan-for-db', async (_event, exePath: string) => {
+    const dbFiles = processWatcher.deepHuntForDatabase(exePath);
+    const appName = path.parse(exePath).name;
+    return { dbFiles, appName };
+  });
+
+  ipcMain.handle('screenshot-desktop', async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1920, height: 1080 },
+    });
+    const primary = sources[0];
+    if (!primary) return { error: 'No screen found' };
+    return { image: primary.thumbnail.toPNG().toString('base64') };
   });
 
   ipcMain.handle('start-analysis', async (event, pathOrUrl: string, sampleData: string = '') => {
@@ -301,8 +366,133 @@ export function setupIpc() {
     }
   });
 
+  ipcMain.handle('pick-csv-file', async () => {
+    const result = await dialog.showOpenDialog({ filters: [{ name: 'CSV', extensions: ['csv'] }], properties: ['openFile'] });
+    return result.canceled ? null : result.filePaths[0];
+  });
+
+  ipcMain.handle('process-csv-upload-from-path', async (_event, { filePath, slug, pharmacyName }: any) => {
+    const csvText = fs.readFileSync(filePath, 'utf-8');
+    const fileName = path.basename(filePath);
+    return await processCsvUpload(csvText, fileName, slug, pharmacyName);
+  });
+
+  ipcMain.handle('process-csv-upload', async (_event, { csvText, fileName, slug, pharmacyName }: any) => {
+    return await processCsvUpload(csvText, fileName, slug, pharmacyName);
+  });
+
+  async function processCsvUpload(csvText: string, fileName: string, slug: string, pharmacyName: string) {
+    try {
+      // 1. Parse CSV into items
+      const lines = csvText.trim().split('\n');
+      if (lines.length < 2) return { success: false, error: 'CSV has no data rows' };
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const nameIdx = headers.findIndex(h => /name|product|item|medicine|drug/i.test(h));
+      const qtyIdx = headers.findIndex(h => /qty|quantity|stock|available/i.test(h));
+      const priceIdx = headers.findIndex(h => /price|amount|cost|selling/i.test(h));
+
+      const items: any[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',').map(c => c.trim());
+        const name = nameIdx >= 0 ? cols[nameIdx]?.replace(/"/g, '') : '';
+        const qty = qtyIdx >= 0 ? parseFloat(cols[qtyIdx]?.replace(/[^0-9.]/g, '')) || 0 : 0;
+        const price = priceIdx >= 0 ? parseFloat(cols[priceIdx]?.replace(/[^0-9.]/g, '')) || 0 : 0;
+        if (name && name.length > 1) items.push({ name, qty, price });
+      }
+
+      // 2. Email the CSV to admin
+      try {
+        const resendApiKey = process.env.RESEND_API_KEY;
+        if (resendApiKey) {
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${resendApiKey}` },
+            body: JSON.stringify({
+              from: 'Synkk <onboarding@resend.dev>',
+              to: 'pharmastackx@gmail.com',
+              subject: `CSV Upload: ${pharmacyName} (${slug}) — ${items.length} items`,
+              html: `<p><strong>${pharmacyName}</strong> (${slug}) uploaded a CSV with ${items.length} items.</p><p>File: ${fileName}</p>`,
+              attachments: [{ filename: fileName, content: Buffer.from(csvText).toString('base64') }],
+            }),
+          });
+        }
+      } catch (emailErr: any) {
+        console.error('[CSV] Email failed:', emailErr.message);
+      }
+
+      // 3. Sync items to PSX cloud
+      if (items.length > 0 && slug) {
+        const storefront = getStore('storefront') as any;
+        const axios = require('axios');
+        await axios.post('https://www.pharmastackx.com/api/sync', {
+          pharmacy_slug: slug,
+          pharmacy_name: pharmacyName || storefront?.name || 'Unknown',
+          coordinates: storefront?.coordinates || null,
+          updates: items,
+          deletes: [],
+          sync_tier: 5,
+          app_version: app.getVersion(),
+        }, { headers: { 'Content-Type': 'application/json' }, timeout: 30000 });
+      }
+
+      return { success: true, itemCount: items.length };
+    } catch (err: any) {
+      console.error('[CSV] Process failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
   ipcMain.handle('save-storefront-data', async (event, data: any) => {
     setStore('storefront', data);
+    return true;
+  });
+
+  let storeManagementWin: BrowserWindow | null = null;
+  ipcMain.handle('open-store-management', async (_event, slug: string) => {
+    if (storeManagementWin && !storeManagementWin.isDestroyed()) {
+      storeManagementWin.focus();
+      return true;
+    }
+
+    const psxBase = 'https://www.pharmastackx.com';
+    const targetUrl = `${psxBase}?view=storeManagement`;
+    const psxSession = session.fromPartition('persist:synkk-psx');
+
+    // Auto-login using partition's own fetch (cookies are stored automatically)
+    const existingCookies = await psxSession.cookies.get({ name: 'session_token' });
+    if (existingCookies.length === 0) {
+      try {
+        if (safeStorage.isEncryptionAvailable()) {
+          const creds = getStore('psxCredentials') as any;
+          if (creds?.encEmail && creds?.encPass) {
+            const email = safeStorage.decryptString(Buffer.from(creds.encEmail, 'base64'));
+            const password = safeStorage.decryptString(Buffer.from(creds.encPass, 'base64'));
+            await psxSession.fetch(`${psxBase}/api/auth/login`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, password }),
+            });
+          }
+        }
+      } catch (e: any) {
+        console.error('[open-store-management] Auto-login failed:', e.message);
+      }
+    }
+
+    storeManagementWin = new BrowserWindow({
+      width: 480,
+      height: 850,
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        partition: 'persist:synkk-psx',
+      },
+      icon: path.join(__dirname, '../public/icon.png'),
+    });
+    storeManagementWin.loadURL(targetUrl);
+    storeManagementWin.once('ready-to-show', () => storeManagementWin?.show());
+    storeManagementWin.on('closed', () => { storeManagementWin = null; });
     return true;
   });
   
@@ -638,6 +828,46 @@ ipcMain.handle('update-csv-path', async (event) => {
   // ── Leads Data ──────────────────────────
   ipcMain.handle('get-leads', async () => {
     return getStore('leads') || [];
+  });
+
+  // ── App Modules Config ──────────────────
+  ipcMain.handle('get-app-modules', () => {
+    return getStore('appModules');
+  });
+
+  ipcMain.handle('save-app-modules', (event, modules) => {
+    const oldModules = getStore('appModules') as any;
+    setStore('appModules', modules);
+    console.log('[Modules] App Modules configuration saved.', modules);
+
+    // If Synkk Engine was just toggled OFF
+    if (oldModules?.synkk !== false && modules.synkk === false) {
+      console.log('[Modules] Synkk Engine disabled. Shutting down background services...');
+      const { stopScheduler } = require('./scheduler');
+      const { disconnectPusher } = require('./pusher');
+      const { stopRemoteConfigPoller } = require('./remote-config');
+      
+      stopScheduler();
+      disconnectPusher();
+      stopRemoteConfigPoller();
+    }
+    
+    // If Synkk Engine was just toggled ON
+    if (oldModules?.synkk === false && modules.synkk !== false) {
+      const storefront = getStore('storefront') as any;
+      if (storefront?.slug) {
+        console.log('[Modules] Synkk Engine enabled. Booting background services...');
+        const { startScheduler } = require('./scheduler');
+        const { initializePusher } = require('./pusher');
+        const { startRemoteConfigPoller } = require('./remote-config');
+        
+        startScheduler(storefront.slug);
+        initializePusher(storefront.slug, BrowserWindow.getAllWindows()[0] || null);
+        startRemoteConfigPoller();
+      }
+    }
+    
+    return true;
   });
 
   ipcMain.handle('update-lead-status', async (event, id: string, status: string) => {

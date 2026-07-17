@@ -33,17 +33,17 @@ export default function Analysis() {
            setMessage("Almost done...");
            setTimeout(() => {
              const finalPath = response.resolvedPath || pathOrUrl;
-             navigate('/confirmation', { state: { result: response.result, pathOrUrl: finalPath } });
+             navigate('/dashboard/synkk/confirmation', { state: { result: response.result, pathOrUrl: finalPath } });
            }, 1000);
         } else {
            console.error(response.error);
            alert('Analysis failed: ' + response.error);
-           navigate('/');
+           navigate('/dashboard/synkk');
         }
       } catch (err: any) {
         console.error(err);
         alert('Error: ' + err.message);
-        navigate('/');
+        navigate('/dashboard/synkk');
       }
     };
     

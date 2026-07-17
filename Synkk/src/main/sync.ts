@@ -5,6 +5,19 @@ import { net, safeStorage, BrowserWindow, app, session } from 'electron';
 import { reportSessionExpired } from './remote-config';
 import { lookupKnownMethod, reportSuccessfulMethod, applyKnownMethod } from './collective-intelligence';
 import { startLiveBroadcast } from './live-broadcast';
+import fs from 'fs';
+import path from 'path';
+
+// ── File logger ───────────────────────────────────────────────────────
+const logDir = path.join(app.getPath('userData'), 'logs');
+const logFile = path.join(logDir, 'sync.log');
+if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+function writeLog(line: string) {
+  try {
+    const ts = new Date().toISOString();
+    fs.appendFileSync(logFile, `[${ts}] ${line}\n`);
+  } catch (_) {}
+}
 
 // ── Count Validation Types ────────────────────────────────────────────
 type CountResult =
@@ -553,7 +566,9 @@ export function broadcastSyncProgress(progress: number, message: string) {
 
 export function broadcastSyncStream(log: string) {
   try {
-    console.log(`[UI STREAM] ${log.replace(/\\n/g, '\n')}`);
+    const clean = log.replace(/\\n/g, '\n');
+    console.log(`[UI STREAM] ${clean}`);
+    writeLog(clean);
     const windows = BrowserWindow.getAllWindows();
     for (const win of windows) {
       if (!win.isDestroyed()) {
@@ -724,8 +739,96 @@ async function attemptAutoLogin(win: BrowserWindow): Promise<boolean> {
 }
 
 // ── Core Extraction: Web POS (Agent-Based) ───────────────────────────
-const PSX_AGENT_ENDPOINT = 'https://www.pharmastackx.com/api/synkk-ai/agent';
+const PSX_BASE = 'https://www.pharmastackx.com';
+const PSX_AGENT_ENDPOINT = `${PSX_BASE}/api/synkk-ai/agent`;
+const PSX_HEAL_ENDPOINT = `${PSX_BASE}/api/synkk-ai/heal`;
 const MAX_AGENT_TURNS = 60; // safety cap on agent loop
+
+// Shared item parser — handles plain arrays and DataTables { data: [...] } envelopes
+function parseExtractedItems(rawResult: any): any[] {
+  let rows: any[] = [];
+  if (Array.isArray(rawResult) && rawResult.length > 0) {
+    rows = rawResult;
+  } else if (rawResult && typeof rawResult === 'object') {
+    // Handle { data: [...] } — standard DataTables envelope
+    if (Array.isArray(rawResult.data) && rawResult.data.length > 0) {
+      rows = rawResult.data;
+    // Handle { data: { data: [...] } } — double-nested envelope
+    } else if (rawResult.data && Array.isArray(rawResult.data.data) && rawResult.data.data.length > 0) {
+      rows = rawResult.data.data;
+    } else {
+      return [];
+    }
+  } else {
+    return [];
+  }
+  return rows.map((row: any) => {
+    const nameRaw = row.product || row.name || row.medicine_name || row.item_name || row.product_name || row.drug_name || row.title || row.description || (Array.isArray(row) ? (row[1] || row[0]) : '') || '';
+    const priceRaw = row.selling_price || row.price || row.unit_price || row.sale_price || row.retail_price || (Array.isArray(row) ? row[4] : '') || '0';
+    const qtyRaw = row.current_stock || row.qty || row.stock || row.quantity || row.available || row.balance || (Array.isArray(row) ? row[5] : '') || '0';
+    const name = String(nameRaw).replace(/<[^>]*>/g, '').trim();
+    const price = parseFloat(String(priceRaw).replace(/[^0-9.]/g, '')) || 0;
+    const qty = parseFloat(String(qtyRaw).replace(/[^0-9.]/g, '')) || 0;
+    return { name, qty, price };
+  }).filter((item: any) => item.name && item.name.length > 1 && !item.name.toLowerCase().includes('action'));
+}
+
+// Self-heal: when all extraction paths fail, capture page HTML and ask Gemini to write a new script
+async function attemptSelfHeal(
+  win: BrowserWindow,
+  url: string,
+  failedScript?: string,
+  errorMessage?: string,
+  attempt: number = 1
+): Promise<any[] | null> {
+  broadcastSyncStream(`[HEAL] Synkk is self-repairing (attempt ${attempt}/3)...`);
+  try {
+    const pageHtml = await win.webContents.executeJavaScript(
+      `document.documentElement.outerHTML.substring(0, 50000)`
+    ).catch(() => '');
+
+    const axios = require('axios');
+    const healRes = await axios.post(PSX_HEAL_ENDPOINT, {
+      url, pageHtml, failedScript, errorMessage, attempt,
+    }, { timeout: 90000 });
+
+    const { script } = healRes.data;
+    if (!script) {
+      broadcastSyncStream(`[HEAL] No script returned from server.`);
+      return null;
+    }
+
+    broadcastSyncStream(`[HEAL] Got new extraction script. Testing it now...`);
+    let rawResult: any;
+    let execError: string | undefined;
+    try {
+      rawResult = await win.webContents.executeJavaScript(script);
+      await new Promise(r => setTimeout(r, 3000));
+    } catch (e: any) {
+      execError = e.message;
+    }
+
+    const items = parseExtractedItems(rawResult);
+    if (items.length > 10) {
+      broadcastSyncStream(`[HEAL] ✓ Self-repair successful — got ${items.length} items. Saving script permanently.`);
+      const pairingData = getStore('pairing') as any;
+      setStore('pairing', { ...pairingData, cachedScript: script, cachedMethod: 'Self-healed script' });
+      return items;
+    }
+
+    broadcastSyncStream(`[HEAL] Script returned ${items.length} items — insufficient. ${attempt < 3 ? 'Retrying with error context...' : 'All heal attempts exhausted.'}`);
+    if (attempt < 3) {
+      return attemptSelfHeal(win, url, script, execError || `Returned only ${items.length} items`, attempt + 1);
+    }
+    return null;
+  } catch (e: any) {
+    broadcastSyncStream(`[HEAL] Heal attempt ${attempt} failed: ${e.message}`);
+    if (attempt < 3) {
+      return attemptSelfHeal(win, url, failedScript, e.message, attempt + 1);
+    }
+    return null;
+  }
+}
 
 async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (batch: any[]) => Promise<void>): Promise<{ items: any[], tier: number }> {
   broadcastSyncProgress(40, 'Starting extraction...');
@@ -751,26 +854,18 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
         // Don't throw here — fall through to the full agent which will also try auto-login
       }
 
-      let rawResult = await fastWindow.webContents.executeJavaScript(pairingData.cachedScript);
-      if (!fastWindow.isDestroyed()) fastWindow.destroy();
-
-      // Handle DataTables envelope { data: [...] } in addition to plain arrays
-      let items: any[] = [];
-      if (Array.isArray(rawResult) && rawResult.length > 0) {
-        items = rawResult;
-      } else if (rawResult && typeof rawResult === 'object' && Array.isArray(rawResult.data) && rawResult.data.length > 0) {
-        items = rawResult.data.map((row: any) => {
-          const nameRaw = row.product || row.name || (Array.isArray(row) ? row[1] : '') || '';
-          const priceRaw = row.selling_price || row.price || (Array.isArray(row) ? row[4] : '') || '0';
-          const qtyRaw = row.current_stock || row.qty || row.stock || (Array.isArray(row) ? row[5] : '') || '0';
-          const name = String(nameRaw).replace(/<[^>]*>/g, '').trim();
-          const price = parseFloat(String(priceRaw).replace(/[^0-9.]/g, '')) || 0;
-          const qty = parseFloat(String(qtyRaw).replace(/[^0-9.]/g, '')) || 0;
-          return { name, qty, price };
-        }).filter((item: any) => item.name && item.name.length > 1 && !item.name.toLowerCase().includes('action'));
+      let rawResult: any;
+      let cacheErrMsg: string | undefined;
+      try {
+        rawResult = await fastWindow.webContents.executeJavaScript(pairingData.cachedScript);
+      } catch (e: any) {
+        cacheErrMsg = e.message;
       }
 
+      const items = cacheErrMsg ? [] : parseExtractedItems(rawResult);
+
       if (items.length > 0) {
+        if (!fastWindow.isDestroyed()) fastWindow.destroy();
         broadcastSyncStream(`[CACHE] ✓ Got ${items.length} items from cached script.`);
         broadcastSyncProgress(85, `Extracted ${items.length} items.`);
         if (onBatchExtracted) {
@@ -778,9 +873,22 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
         }
         return { items, tier: 1 };
       }
-      broadcastSyncStream(`[CACHE] Cached script returned no items — falling back to agent.`);
+
+      // Cache script returned nothing — self-heal before falling back to full agent
+      const cacheFailReason = cacheErrMsg || 'Returned 0 items';
+      broadcastSyncStream(`[CACHE] Cached script failed (${cacheFailReason}). Attempting self-heal...`);
+      const healedItems = await attemptSelfHeal(fastWindow, url, pairingData.cachedScript, cacheFailReason);
+      if (!fastWindow.isDestroyed()) fastWindow.destroy();
+      if (healedItems && healedItems.length > 0) {
+        broadcastSyncProgress(85, `Extracted ${healedItems.length} items.`);
+        if (onBatchExtracted) {
+          for (let i = 0; i < healedItems.length; i += 100) await onBatchExtracted(healedItems.slice(i, i + 100));
+        }
+        return { items: healedItems, tier: 1 };
+      }
+      broadcastSyncStream(`[CACHE] Self-heal could not recover — falling back to full agent.`);
     } catch (cacheErr: any) {
-      broadcastSyncStream(`[CACHE] Cached script failed (${cacheErr.message}) — falling back to agent.`);
+      broadcastSyncStream(`[CACHE] Unexpected cache error (${cacheErr.message}) — falling back to agent.`);
       if (!fastWindow.isDestroyed()) fastWindow.destroy();
     }
   }
@@ -807,14 +915,14 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
       new Promise((_, r) => setTimeout(() => r(new Error('debugger timeout')), 3000))
     ]);
     hiddenWindow.webContents.debugger.on('message', (_event, method, params) => {
-      if (method === 'Network.responseReceived' && params.response.mimeType?.includes('json')) {
+      if (method === 'Network.responseReceived') {
         hiddenWindow.webContents.debugger.sendCommand('Network.getResponseBody', { requestId: params.requestId })
           .then((res: any) => {
-            if (res.body && res.body.length > 500) {
+            if (res.body && res.body.length > 100) {
               try {
                 const json = JSON.parse(res.body);
                 const arr = Array.isArray(json) ? json : (json.data || json.items || json.products || json.inventory || null);
-                if (arr && Array.isArray(arr) && arr.length > 2) {
+                if (arr && Array.isArray(arr) && arr.length > 0) {
                   interceptedRequests.push({ url: params.response.url, body: json });
                 }
               } catch (_) {}
@@ -885,11 +993,28 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
     throw new Error('ALL_TIERS_FAILED: Session expired and auto-login failed. User must log in via the Web POS screen in Synkk.');
   }
 
+  // After login/navigation settles, force a DataTables reload so the interceptor
+  // (which patches XHR/fetch on dom-ready) can capture a fresh network call.
+  await new Promise(r => setTimeout(r, 3000));
+  await hiddenWindow.webContents.executeJavaScript(`
+    (() => {
+      try {
+        if (window.$ && $.fn && $.fn.dataTable) {
+          const tables = $.fn.dataTable.tables({ visible: false, api: true });
+          if (tables && tables.ajax) tables.ajax.reload(null, false);
+        }
+      } catch(_) {}
+    })();
+  `).catch(() => {});
+  await new Promise(r => setTimeout(r, 3000));
+
   broadcastSyncStream('[AGENT] Page loaded. Starting agent loop...');
 
   // ── Agent Loop ────────────────────────────────────────────────────────
   let messages: any[] = [];
   let turns = 0;
+  let lastTriedScript: string | undefined;
+  let lastAgentError: string | undefined;
 
   try {
     while (turns < MAX_AGENT_TURNS) {
@@ -898,10 +1023,25 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
       if (turns > 1) await new Promise(r => setTimeout(r, 7000)); // stay under 10 RPM free tier
 
       const axios = require('axios');
-      const agentResponse = await axios.post(PSX_AGENT_ENDPOINT, { messages, url }, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 120000,
-      });
+      let agentResponse: any;
+      try {
+        agentResponse = await axios.post(PSX_AGENT_ENDPOINT, { messages, url }, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 120000,
+        });
+      } catch (networkErr: any) {
+        broadcastSyncStream(`[AGENT] PSX call failed on turn ${turns}: ${networkErr.message}. Routing to self-heal...`);
+        const healedItems = await attemptSelfHeal(hiddenWindow, url, lastTriedScript, networkErr.message);
+        if (!hiddenWindow.isDestroyed()) hiddenWindow.destroy();
+        if (healedItems && healedItems.length > 0) {
+          broadcastSyncProgress(85, `Self-healed ${healedItems.length} items.`);
+          if (onBatchExtracted) {
+            for (let i = 0; i < healedItems.length; i += 100) await onBatchExtracted(healedItems.slice(i, i + 100));
+          }
+          return { items: healedItems, tier: 2 };
+        }
+        throw networkErr;
+      }
       const result = agentResponse.data;
 
       // Always update messages with what the agent returned
@@ -932,6 +1072,16 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
       }
 
       if (result.type === 'failed') {
+        broadcastSyncStream(`[AGENT] Agent gave up: ${result.reason}. Attempting self-heal...`);
+        const healedItems = await attemptSelfHeal(hiddenWindow, url, lastTriedScript, result.reason);
+        if (!hiddenWindow.isDestroyed()) hiddenWindow.destroy();
+        if (healedItems && healedItems.length > 0) {
+          broadcastSyncProgress(85, `Self-healed ${healedItems.length} items.`);
+          if (onBatchExtracted) {
+            for (let i = 0; i < healedItems.length; i += 100) await onBatchExtracted(healedItems.slice(i, i + 100));
+          }
+          return { items: healedItems, tier: 2 };
+        }
         throw new Error(`ALL_TIERS_FAILED: ${result.reason}`);
       }
 
@@ -963,24 +1113,17 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
             toolResult = { text: (text as string).slice(0, 6000) };
 
           } else if (tool === 'execute_script') {
+            lastTriedScript = args.script;
             const scriptResult = await hiddenWindow.webContents.executeJavaScript(args.script);
             // Allow extra time for async scripts and DataTables AJAX reloads
             await new Promise(r => setTimeout(r, 8000));
 
             // If we got a DataTables response with lots of rows, extract and finish immediately.
             // Sending 6000 rows back through the agent makes an 18MB payload that times out.
-            if (scriptResult && typeof scriptResult === 'object' && Array.isArray(scriptResult.data) && scriptResult.data.length > 50) {
-              broadcastSyncStream(`[AGENT] DataTables response detected (${scriptResult.data.length} rows) — extracting locally...`);
-              const rawData: any[] = scriptResult.data;
-              const extractedItems = rawData.map((row: any) => {
-                const nameRaw = row.product || row.name || (Array.isArray(row) ? row[1] : '') || '';
-                const priceRaw = row.selling_price || row.price || (Array.isArray(row) ? row[4] : '') || '0';
-                const qtyRaw = row.current_stock || row.qty || row.stock || (Array.isArray(row) ? row[5] : '') || '0';
-                const name = String(nameRaw).replace(/<[^>]*>/g, '').trim();
-                const price = parseFloat(String(priceRaw).replace(/[^0-9.]/g, '')) || 0;
-                const qty = parseFloat(String(qtyRaw).replace(/[^0-9.]/g, '')) || 0;
-                return { name, qty, price };
-              }).filter((item: any) => item.name && item.name.length > 1 && !item.name.toLowerCase().includes('action'));
+            const earlyItems = parseExtractedItems(scriptResult);
+            if (earlyItems.length > 50) {
+              broadcastSyncStream(`[AGENT] DataTables response detected (${earlyItems.length} rows) — extracting locally...`);
+              const extractedItems = earlyItems;
 
               if (extractedItems.length > 100) {
                 broadcastSyncStream(`[AGENT] ✓ Extracted ${extractedItems.length} items from DataTables. Finishing.`);
@@ -1022,6 +1165,7 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
           }
         } catch (toolErr: any) {
           toolResult = { error: toolErr.message };
+          if (tool === 'execute_script') lastAgentError = toolErr.message;
         }
 
         broadcastSyncStream(`[AGENT] ← Tool result: ${JSON.stringify(toolResult).slice(0, 120)}...`);
@@ -1044,6 +1188,16 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
       }
     }
 
+    broadcastSyncStream(`[AGENT] Exhausted all ${MAX_AGENT_TURNS} turns. Attempting self-heal...`);
+    const healedItems = await attemptSelfHeal(hiddenWindow, url, lastTriedScript, lastAgentError || 'Agent exceeded maximum turns');
+    if (!hiddenWindow.isDestroyed()) hiddenWindow.destroy();
+    if (healedItems && healedItems.length > 0) {
+      broadcastSyncProgress(85, `Self-healed ${healedItems.length} items.`);
+      if (onBatchExtracted) {
+        for (let i = 0; i < healedItems.length; i += 100) await onBatchExtracted(healedItems.slice(i, i + 100));
+      }
+      return { items: healedItems, tier: 2 };
+    }
     throw new Error('ALL_TIERS_FAILED: Agent exceeded maximum turns without finishing.');
 
   } catch (err: any) {

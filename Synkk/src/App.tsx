@@ -9,8 +9,20 @@ import Done from './renderer/screens/Done';
 import ManualOverride from './renderer/screens/ManualOverride';
 import WebScraper from './renderer/screens/WebScraper';
 import BubbleMode from './renderer/screens/BubbleMode';
+import SynkkEngineTab from './renderer/screens/SynkkEngineTab';
 
-import NotificationOverlay from './renderer/screens/NotificationOverlay';
+import DashboardLayout from './renderer/screens/DashboardLayout';
+import GeneralDashboardTab from './renderer/screens/GeneralDashboardTab';
+import PosTab from './renderer/screens/PosTab';
+import DispensaryTab from './renderer/screens/DispensaryTab';
+import MiniWidget from './renderer/screens/MiniWidget';
+import OrdersTab from './renderer/screens/OrdersTab';
+import LeadsTab from './renderer/screens/LeadsTab';
+import OrdersAndLeadsTab from './renderer/screens/OrdersAndLeadsTab';
+import SourceTab from './renderer/screens/SourceTab';
+import StaffTab from './renderer/screens/StaffTab';
+import EmrTab from './renderer/screens/EmrTab';
+
 
 function App() {
   React.useEffect(() => {
@@ -52,7 +64,7 @@ function App() {
       <MemoryRouter initialEntries={['/overlay']}>
         <div className="w-full h-screen overflow-hidden bg-transparent">
           <Routes>
-            <Route path="/overlay" element={<NotificationOverlay />} />
+
           </Routes>
         </div>
       </MemoryRouter>
@@ -142,24 +154,47 @@ function AppRoutes() {
 
   return (
     <div className="relative w-full h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#050505] text-slate-100 font-sans custom-scroll">
-        {/* Animated Background Blobs */}
-        <div className="blob bg-emerald-500/20 w-[600px] h-[600px] top-[-10%] left-[-10%] fixed"></div>
-        <div className="blob bg-cyan-500/20 w-[500px] h-[500px] bottom-[-20%] right-[-10%] fixed" style={{ animationDelay: '2s' }}></div>
-        <div className="blob bg-purple-500/10 w-[400px] h-[400px] top-[20%] right-[20%] fixed" style={{ animationDelay: '4s' }}></div>
-
-        {/* Main Content Area */}
-        <div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center">
-          <Routes>
-            <Route path="/" element={<Welcome />} />
-            <Route path="/web-scraper" element={<WebScraper />} />
-            <Route path="/analysis" element={<Analysis />} />
-            <Route path="/confirmation" element={<Confirmation />} />
-            <Route path="/override" element={<ManualOverride />} />
-            <Route path="/setup" element={<StorefrontSetup />} />
-            <Route path="/guest-auth" element={<GuestAuth />} />
-            <Route path="/done" element={<Done />} />
-          </Routes>
-        </div>
+        {/* Animated Background Blobs are now in DashboardLayout for the dashboard routes, 
+            so we only show them here for non-dashboard routes if needed, but since AppRoutes wraps everything, 
+            we can conditionally render them or just leave them. We'll let the layout handle its own background. */}
+        <Routes>
+          <Route path="/" element={
+            <>
+              <div className="blob bg-emerald-500/20 w-[600px] h-[600px] top-[-10%] left-[-10%] fixed pointer-events-none"></div>
+              <div className="blob bg-cyan-500/20 w-[500px] h-[500px] bottom-[-20%] right-[-10%] fixed pointer-events-none" style={{ animationDelay: '2s' }}></div>
+              <div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center">
+                <Welcome />
+              </div>
+            </>
+          } />
+          <Route path="/web-scraper" element={<div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center"><WebScraper /></div>} />
+          <Route path="/analysis" element={<div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center"><Analysis /></div>} />
+          <Route path="/confirmation" element={<div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center"><Confirmation /></div>} />
+          <Route path="/override" element={<div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center"><ManualOverride /></div>} />
+          <Route path="/setup" element={<div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center"><StorefrontSetup /></div>} />
+          <Route path="/guest-auth" element={<div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center"><GuestAuth /></div>} />
+          <Route path="/mini-widget" element={<MiniWidget />} />
+          
+          <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route index element={<GeneralDashboardTab />} />
+            <Route path="pos" element={<PosTab />} />
+            <Route path="dispensary" element={<DispensaryTab />} />
+            <Route path="orders" element={<div className="w-full max-w-4xl mx-auto p-4 h-full"><OrdersAndLeadsTab slug="main" /></div>} />
+            <Route path="source" element={<div className="w-full max-w-4xl mx-auto p-8"><SourceTab slug="main" /></div>} />
+            <Route path="staff" element={<StaffTab />} />
+            <Route path="emr" element={<EmrTab />} />
+            
+            {/* Synkk Engine — entire setup flow lives here */}
+            <Route path="synkk" element={<div className="w-full max-w-4xl mx-auto p-8"><SynkkEngineTab /></div>} />
+            <Route path="synkk/analysis" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><Analysis /></div>} />
+            <Route path="synkk/web-scraper" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><WebScraper /></div>} />
+            <Route path="synkk/confirmation" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><Confirmation /></div>} />
+            <Route path="synkk/override" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><ManualOverride /></div>} />
+            <Route path="synkk/setup" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><StorefrontSetup /></div>} />
+            <Route path="synkk/guest-auth" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><GuestAuth /></div>} />
+            <Route path="synkk/done" element={<div className="w-full max-w-4xl mx-auto p-8"><Done /></div>} />
+          </Route>
+        </Routes>
       </div>
   );
 }
