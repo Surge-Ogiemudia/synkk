@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { UploadCloud, Link as LinkIcon, Database, ArrowRight, ArrowLeft, HardDrive, Radio, Mail, Lock, User, Phone, Check, LogOut } from 'lucide-react';
+import { UploadCloud, Link as LinkIcon, Database, ArrowRight, ArrowLeft, HardDrive, Radio, Mail, Lock, User, Phone, Check, LogOut, Eye, EyeOff } from 'lucide-react';
 import StorefrontSetup from './StorefrontSetup';
 import BubbleMode from './BubbleMode';
 import POSTypeSelector from './POSTypeSelector';
@@ -18,9 +18,10 @@ export default function Welcome() {
   const autoFocusWebPos = location.state?.autoFocusWebPos;
   
   // Auth State
-  const [authState, setAuthState] = useState<'email_check' | 'register' | 'login' | 'authenticated'>('login');
+  const [authState, setAuthState] = useState<'email_check' | 'register' | 'login' | 'authenticated'>('email_check');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [pharmacyName, setPharmacyName] = useState('');
   const [phone, setPhone] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -89,10 +90,14 @@ export default function Welcome() {
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await fetch('https://www.pharmastackx.com/api/auth-desktop', {
+      const isEmail = email.includes('@');
+      const res = await fetch('https://www.psx.ng/api/auth/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'check', email })
+        body: JSON.stringify({ 
+          email: isEmail ? email : undefined,
+          phoneNumber: !isEmail ? email : undefined 
+        })
       });
       const data = await res.json();
       if (data.exists) {
@@ -128,7 +133,15 @@ export default function Welcome() {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
         await ipcRenderer.invoke('set-session-cookie', { token: data.token });
-        await ipcRenderer.invoke('save-storefront-data', { slug: data.user.slug || 'local', name: data.user.businessName || 'My Pharmacy', coordinates: null, isNewUser: false });
+        await ipcRenderer.invoke('save-storefront-data', { 
+          slug: data.user.slug || 'local', 
+          name: data.user.businessName || 'My Pharmacy', 
+          staffName: data.user.name || data.user.email,
+          role: data.user.role,
+          phone: data.user.phoneNumber || '',
+          coordinates: null, 
+          isNewUser: false 
+        });
         await ipcRenderer.invoke('save-psx-credentials', { email, password });
         navigate('/dashboard');
       } else {
@@ -217,7 +230,7 @@ export default function Welcome() {
             Connect to <span className="gradient-text">PharmaStackX</span>
           </h1>
           <p className="text-slate-400 font-light max-w-sm mx-auto">
-            Sign in to access your dashboard, POS, EMR, and storefront.
+            Sign in to access your terminal.
           </p>
         </div>
 
@@ -234,12 +247,12 @@ export default function Welcome() {
             {authState === 'email_check' && (
               <form onSubmit={handleCheckEmail} className="flex flex-col gap-4 animate-in slide-in-from-bottom-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Email Address</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Email or Phone Number</label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                    <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                    <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)}
                       className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
-                      placeholder="pharmacy@example.com" />
+                      placeholder="pharmacy@example.com or 080..." />
                   </div>
                 </div>
                 <button type="submit" disabled={authLoading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors mt-2 disabled:opacity-50">
@@ -264,17 +277,7 @@ export default function Welcome() {
                   </button>
                 </div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-slate-300">Sign in to your account</span>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Email or Phone Number</label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                    <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
-                      placeholder="Email or Phone number" />
-                  </div>
+                  <span className="text-sm text-slate-300">Welcome back!</span>
                 </div>
 
                 <div>

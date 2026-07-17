@@ -16,6 +16,10 @@ export default function DashboardLayout() {
     emr: false,
     synkk: true,
   });
+  const [pharmacyName, setPharmacyName] = useState('PharmaStackX');
+  const [staffName, setStaffName] = useState('Pro Terminal');
+  const [staffRole, setStaffRole] = useState('');
+  const [staffPhone, setStaffPhone] = useState('');
 
   useEffect(() => {
     const { ipcRenderer } = window.require('electron');
@@ -35,6 +39,15 @@ export default function DashboardLayout() {
           // Sync defaults to backend
           ipcRenderer.invoke('save-app-modules', modules);
         }
+      }
+    });
+
+    ipcRenderer.invoke('get-storefront-data').then((data: any) => {
+      if (data) {
+        if (data.name) setPharmacyName(data.name);
+        if (data.staffName) setStaffName(data.staffName);
+        if (data.role) setStaffRole(data.role);
+        if (data.phone) setStaffPhone(data.phone);
       }
     });
   }, []);
@@ -64,12 +77,21 @@ export default function DashboardLayout() {
       {/* Sidebar Navigation */}
       <div className="w-64 border-r border-slate-800 bg-slate-900/50 backdrop-blur-xl flex flex-col z-20 shadow-2xl relative">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 shadow-lg shadow-emerald-500/20 flex items-center justify-center font-bold text-white text-xs">
-            PSX
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 shadow-lg shadow-emerald-500/20 flex items-center justify-center font-bold text-white text-xs uppercase overflow-hidden">
+            {pharmacyName.substring(0, 2)}
           </div>
-          <div>
-            <h2 className="font-bold text-lg tracking-tight">PharmaStackX</h2>
-            <p className="text-xs text-emerald-400 font-medium">Pro Terminal</p>
+          <div className="overflow-hidden">
+            <h2 className="font-bold text-[15px] leading-tight tracking-tight truncate" title={pharmacyName}>{pharmacyName}</h2>
+            <div className="flex flex-col gap-0.5 mt-0.5">
+              <p className="text-[10px] text-emerald-400 font-medium truncate" title={staffName}>
+                {staffName} {staffRole ? `(${staffRole})` : ''}
+              </p>
+              {staffPhone && (
+                <p className="text-[10px] text-slate-400 font-medium truncate" title={staffPhone}>
+                  {staffPhone}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
