@@ -24,11 +24,11 @@ export default function Confirmation() {
       const store = await ipcRenderer.invoke('get-storefront-data');
       if (store && store.slug && store.coordinates && !store.isGuest) {
         // Already set up — go straight to dashboard
-        navigate('/done', { state: { slug: store.slug, name: store.name, coordinates: store.coordinates } });
+        navigate('/dashboard/synkk/done', { state: { slug: store.slug, name: store.name, coordinates: store.coordinates } });
       } else if (store?.isGuest) {
-        navigate('/guest-auth');
+        navigate('/dashboard/synkk/guest-auth');
       } else {
-        navigate('/setup');
+        navigate('/dashboard/synkk/setup');
       }
     } catch (err) {
       console.error(err);
@@ -49,7 +49,7 @@ export default function Confirmation() {
       )}
 
       <button 
-        onClick={() => navigate('/')}
+        onClick={() => navigate('/dashboard/synkk')}
         className="absolute -top-12 left-0 text-slate-400 hover:text-white flex items-center gap-1 transition-colors text-sm font-medium"
       >
         <ChevronLeft className="w-4 h-4" />
@@ -103,7 +103,7 @@ export default function Confirmation() {
           Yes, continue
         </button>
         <button 
-          onClick={() => navigate('/override', { state: { pathOrUrl: location.state?.pathOrUrl } })}
+          onClick={() => navigate('/dashboard/synkk/override', { state: { pathOrUrl: location.state?.pathOrUrl } })}
           className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 border border-slate-600 transition-colors"
         >
           <X className="w-5 h-5" />

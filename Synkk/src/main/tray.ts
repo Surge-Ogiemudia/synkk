@@ -44,10 +44,23 @@ export function updateTrayStatus(status: 'green' | 'amber' | 'red', lastSyncTime
   updateTrayMenu(lastSyncTime, medicinesCount);
 }
 
-function updateTrayMenu(lastSyncTime: string = 'Never', medicinesCount: number = 0) {
+function updateTrayMenu(lastSyncTime?: string, medicinesCount?: number) {
   if (!tray) return;
 
   const { BrowserWindow } = require('electron');
+  const { getStore } = require('../store/local');
+  
+  const storedSyncTime = getStore('lastSyncTime');
+  const storedSnapshot = getStore('lastSyncSnapshot') as any[];
+  
+  let displayTime = 'Never';
+  if (lastSyncTime) {
+    displayTime = lastSyncTime;
+  } else if (storedSyncTime) {
+    displayTime = new Date(storedSyncTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  const displayCount = medicinesCount !== undefined ? medicinesCount : (storedSnapshot ? storedSnapshot.length : 0);
 
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Open Synkk', click: () => { 
@@ -55,8 +68,8 @@ function updateTrayMenu(lastSyncTime: string = 'Never', medicinesCount: number =
         if (win) { win.show(); win.focus(); }
     } },
     { type: 'separator' },
-    { label: currentStatus === 'amber' ? 'Status: Offline - Queuing...' : `Last sync: ${lastSyncTime}`, enabled: false },
-    { label: `Medicines synced: ${medicinesCount}`, enabled: false },
+    { label: currentStatus === 'amber' ? 'Status: Offline - Queuing...' : `Last sync: ${displayTime}`, enabled: false },
+    { label: `Medicines synced: ${displayCount}`, enabled: false },
     { type: 'separator' },
     { label: 'View public storefront', click: () => { 
         const { shell } = require('electron');

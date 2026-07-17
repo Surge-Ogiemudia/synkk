@@ -48,9 +48,9 @@ export default function Welcome() {
         if (existingStorefront && existingStorefront.slug && existingStorefront.slug !== 'unknown-slug') {
           const pairing = await ipcRenderer.invoke('get-pairing-data');
           if (pairing && pairing.posIdentifier) {
-            navigate('/done', { state: { slug: existingStorefront.slug, name: existingStorefront.name, coordinates: existingStorefront.coordinates } });
+            navigate('/dashboard', { state: { slug: existingStorefront.slug, name: existingStorefront.name, coordinates: existingStorefront.coordinates } });
           } else {
-            setAuthState('authenticated');
+            navigate('/dashboard');
           }
         }
       } catch (e) {
@@ -123,7 +123,7 @@ export default function Welcome() {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
         await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: data.name || 'My Pharmacy', coordinates: null, isNewUser: false });
-        setAuthState('authenticated');
+        navigate('/dashboard');
       } else {
         setAuthError(data.error || 'Login failed.');
       }
@@ -152,7 +152,7 @@ export default function Welcome() {
         isNewUser: true,
         pendingRegistration: { email: email.toLowerCase(), password, phone }
       });
-      setAuthState('authenticated');
+      navigate('/dashboard');
     } catch (err) {
       setAuthError('An error occurred. Please try again.');
     } finally {
@@ -168,7 +168,7 @@ export default function Welcome() {
       const { ipcRenderer } = window.require('electron');
       // No slug or name yet, just flag as guest
       await ipcRenderer.invoke('save-storefront-data', { slug: '', name: '', coordinates: null, isGuest: true });
-      setAuthState('authenticated');
+      navigate('/dashboard');
     } catch (err) {
       setAuthError('An error occurred. Please try again.');
     } finally {

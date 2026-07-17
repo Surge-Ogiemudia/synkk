@@ -28,7 +28,7 @@ const config = {
     allowToChangeInstallationDirectory: false,
     runAfterFinish: true,
     shortcutName: "Synkk",
-    artifactName: "Synkk-Setup.exe"
+    artifactName: "Synkk-Setup-${version}.exe"
   },
   publish: {
     provider: "github",

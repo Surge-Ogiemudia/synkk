@@ -1,7 +1,6 @@
 const Pusher = require('pusher-js');
 import { Notification, app } from 'electron';
 import { getStore, setStore } from '../store/local';
-import { showNotificationOverlay } from './overlay';
 
 let pusherClient: Pusher | null = null;
 let currentChannel: any = null;
@@ -65,37 +64,7 @@ export function initializePusher(slug: string, mainWindow: any) {
       // Tell frontend to show persistent modal
       mainWindow.webContents.send('show-notification-modal', { type: 'order', data });
     }
-    // Read Notification Settings
-    const orderSettings = getStore('settings') || {};
-    const orderAlarmDuration = orderSettings.alarmDuration || 'infinite';
-
-    // Spawn our custom persistent overlay
-    showNotificationOverlay({ type: 'order', data, alarmDuration: orderAlarmDuration });
-    
-    // 1. Show Native Desktop Notification (fallback)
-    const notification = new Notification({
-      title: '🚨 New Online Order!',
-      body: `${data.patientName} just ordered ${data.itemsCount} items. (₦${data.totalAmount})`,
-      sound: 'Ping' // Windows native sound
-    });
-    
-    notification.on('click', () => {
-      // Bring window to front
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-        mainWindow.flashFrame(false);
-        if (app.setBadgeCount) app.setBadgeCount(0);
-        
-        // Tell renderer to switch to the Orders tab
-        mainWindow.webContents.send('navigate-to-orders');
-      }
-    });
-    
-    notification.show();
-
-    // 2. Tell the React UI to refresh the orders list immediately
+    // 1. Tell the React UI to refresh the orders list immediately
     if (mainWindow) {
       mainWindow.webContents.send('refresh-orders-list');
     }
@@ -141,87 +110,7 @@ export function initializePusher(slug: string, mainWindow: any) {
       // Tell frontend to show persistent modal
       mainWindow.webContents.send('show-notification-modal', { type: 'lead', data: newLead });
     }
-    // Read Notification Settings
-    const leadSettings = getStore('settings') || {};
-    const leadAlarmDuration = leadSettings.alarmDuration || 'infinite';
-
-    // Spawn our custom persistent overlay
-    showNotificationOverlay({ type: 'lead', data: newLead, alarmDuration: leadAlarmDuration });
-
-    const title = data.hasStock ? '🚨 Demand Alert (In Stock)!' : '🔔 Demand Alert (Out of Stock)';
-    const bodyText = data.hasStock 
-      ? `A patient in ${data.location} wants your stocked item! First to accept gets the lead.`
-      : `A patient in ${data.location} is looking for ${data.medicines?.map((m:any) => m.name).join(', ')}.`;
-
-    const notification = new Notification({
-      title,
-      body: bodyText,
-      sound: 'Ping', // Windows native sound
-      actions: [{ type: 'button', text: 'Accept Lead' }, { type: 'button', text: 'Ignore' }]
-    });
-
-    notification.on('click', () => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-        mainWindow.flashFrame(false);
-        if (app.setBadgeCount) app.setBadgeCount(0);
-        mainWindow.webContents.send('navigate-to-leads');
-      }
-    });
-
-    notification.on('action', async (event, index) => {
-      const currentLeads = (getStore('leads') as any[]) || [];
-      const leadIndex = currentLeads.findIndex(l => l.id === newLead.id);
-      
-      if (index === 0) { // Accept clicked
-        console.log('[Pusher] User accepted the drug request lead.');
-        
-        if (leadIndex !== -1) {
-          currentLeads[leadIndex].status = 'accepted';
-          setStore('leads', currentLeads);
-          if (mainWindow) mainWindow.webContents.send('refresh-leads-list');
-        }
-
-        try {
-          const storefront = getStore('storefront') as any;
-          const currentSlug = storefront?.slug || slug;
-          
-          await fetch('https://www.pharmastackx.com/api/synkk/requests/accept', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              pharmacySlug: currentSlug,
-              platformRequestId: newLead.id,
-              items: newLead.medicines
-            })
-          });
-          console.log('[Pusher] Accept response recorded in PharmastackX.');
-        } catch (err) {
-          console.error('[Pusher] Failed to send Accept response:', err);
-        }
-      } else { // Ignore clicked
-        console.log('[Pusher] User ignored the drug request lead.');
-        if (leadIndex !== -1) {
-          currentLeads[leadIndex].status = 'ignored';
-          setStore('leads', currentLeads);
-          if (mainWindow) mainWindow.webContents.send('refresh-leads-list');
-        }
-      }
-      
-      // If action was clicked, optionally open the window anyway
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-        mainWindow.flashFrame(false);
-        if (app.setBadgeCount) app.setBadgeCount(0);
-        mainWindow.webContents.send('navigate-to-leads');
-      }
-    });
-
-    notification.show();
+    // The notification UI is handled by the new MiniWidget
   });
 
   console.log(`[Pusher] Subscribed to ${channelName} and listening for orders.`);

@@ -14,6 +14,16 @@ export default function GuestAuth() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedState, setSelectedState] = useState('');
+  const [city, setCity] = useState('');
+
+  const NIGERIAN_STATES = [
+    "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+    "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT - Abuja", "Gombe",
+    "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
+    "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto",
+    "Taraba", "Yobe", "Zamfara"
+  ];
 
   const handleCheckEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,7 +66,7 @@ export default function GuestAuth() {
         const { ipcRenderer } = window.require('electron');
         await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: data.name || 'My Pharmacy', coordinates: null, isNewUser: false });
         await ipcRenderer.invoke('save-psx-credentials', { email, password });
-        navigate('/setup');
+        navigate('/dashboard/synkk/setup');
       } else {
         setAuthError(data.error || 'Login failed.');
       }
@@ -69,23 +79,23 @@ export default function GuestAuth() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password || !pharmacyName || !phone) return;
+    if (!password || !pharmacyName || !phone || !selectedState || !city) return;
     setAuthLoading(true);
     setAuthError('');
     try {
       let baseSlug = pharmacyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
-      
+
       // @ts-ignore
       const { ipcRenderer } = window.require('electron');
-      await ipcRenderer.invoke('save-storefront-data', { 
-        slug: baseSlug, 
-        name: pharmacyName, 
-        coordinates: null, 
+      await ipcRenderer.invoke('save-storefront-data', {
+        slug: baseSlug,
+        name: pharmacyName,
+        coordinates: null,
         isNewUser: true,
-        pendingRegistration: { email: email.toLowerCase(), password, phone }
+        pendingRegistration: { email: email.toLowerCase(), password, phone, state: selectedState, city }
       });
       await ipcRenderer.invoke('save-psx-credentials', { email: email.toLowerCase(), password });
-      navigate('/setup');
+      navigate('/dashboard/synkk/setup');
     } catch (err) {
       setAuthError('An error occurred. Please try again.');
     } finally {
@@ -179,6 +189,23 @@ export default function GuestAuth() {
                   <input type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)}
                     className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
                     placeholder="+234..." />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">State</label>
+                  <select required value={selectedState} onChange={(e) => setSelectedState(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all appearance-none">
+                    <option value="" disabled>Select state</option>
+                    {NIGERIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">City</label>
+                  <input type="text" required value={city} onChange={(e) => setCity(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                    placeholder="e.g. Ikeja" />
                 </div>
               </div>
 

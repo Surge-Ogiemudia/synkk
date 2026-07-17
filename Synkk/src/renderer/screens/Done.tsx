@@ -4,9 +4,6 @@ import { CheckCircle2, ExternalLink, Activity, Package, Search, Download, AlertT
 import confetti from 'canvas-confetti';
 import QRCode from 'react-qr-code';
 import Pusher from 'pusher-js';
-import OrdersTab from './OrdersTab';
-import LeadsTab from './LeadsTab';
-import SourceTab from './SourceTab';
 
 let globalPusher: Pusher | null = null;
 let currentChannel: any = null;
@@ -20,11 +17,11 @@ export default function Done() {
   
   const [syncFreq, setSyncFreq] = React.useState('15m');
   const [lastSync, setLastSync] = React.useState<string | null>(null);
-  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'orders' | 'leads' | 'source'>('dashboard');
   const [syncError, setSyncError] = React.useState<{ code: string; userMessage: string; severity: string; timestamp?: string } | null>(null);
   const [isRetrying, setIsRetrying] = React.useState(false);
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [streamLogs, setStreamLogs] = React.useState<string[]>([]);
+  const [csvStatus, setCsvStatus] = React.useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const streamEndRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -93,7 +90,7 @@ export default function Done() {
         }
         
         // Instantly switch the UI to the Orders tab
-        setActiveTab('orders');
+        navigate('/dashboard/orders');
         
         // Refresh Orders tab globally
         window.dispatchEvent(new Event('refresh-orders-list'));
@@ -182,8 +179,8 @@ export default function Done() {
     });
     
     // Listen for push notifications to open Orders tab
-    ipcRenderer.on('navigate-to-orders', () => setActiveTab('orders'));
-    ipcRenderer.on('navigate-to-leads', () => setActiveTab('leads'));
+    ipcRenderer.on('navigate-to-orders', () => navigate('/dashboard/orders'));
+    ipcRenderer.on('navigate-to-leads', () => navigate('/dashboard/leads'));
     
     ipcRenderer.on('refresh-orders-list', () => window.dispatchEvent(new Event('refresh-orders-list')));
     ipcRenderer.on('refresh-leads-list', () => window.dispatchEvent(new Event('refresh-leads-list')));
@@ -296,7 +293,7 @@ export default function Done() {
             </p>
             <button 
               onClick={() => {
-                setActiveTab(pendingAlert.type === 'order' ? 'orders' : 'leads');
+                navigate(pendingAlert.type === 'order' ? '/dashboard/orders' : '/dashboard/orders');
                 setPendingAlert(null);
                 // @ts-ignore
                 const { ipcRenderer } = window.require('electron');
@@ -310,71 +307,9 @@ export default function Done() {
         </div>
       )}
 
-      {/* Tab Navigation Wrapper */}
-      <div className="w-full max-w-md mx-auto mb-6 flex flex-col items-end gap-2">
-        <div className="flex gap-2">
-          <button 
-            onClick={() => {
-              setIsGlobalRefreshing(true);
-              window.dispatchEvent(new Event('refresh-orders-list'));
-              window.dispatchEvent(new Event('refresh-leads-list'));
-              setTimeout(() => setIsGlobalRefreshing(false), 1000);
-            }}
-            className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-emerald-400 transition-colors bg-slate-800/50 hover:bg-slate-800 py-1.5 px-3 rounded-lg border border-slate-700 hover:border-emerald-500/50 shadow-sm"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isGlobalRefreshing ? 'animate-spin' : ''}`} /> 
-            Refresh Data
-          </button>
 
-          <button 
-            onClick={async () => {
-              const confirm = window.confirm("Are you sure you want to log out? This will completely wipe all local POS and Pharmacy data on this computer.");
-              if (confirm) {
-                // @ts-ignore
-                const { ipcRenderer } = window.require('electron');
-                await ipcRenderer.invoke('logout-completely');
-                navigate('/', { replace: true });
-              }
-            }}
-            className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-red-400 transition-colors bg-slate-800/50 hover:bg-red-950/50 py-1.5 px-3 rounded-lg border border-slate-700 hover:border-red-500/50 shadow-sm"
-          >
-            <LogOut className="w-3.5 h-3.5" /> 
-            Log Out
-          </button>
-        </div>
-        <div className="flex w-full gap-2 bg-slate-900 rounded-xl p-2 border border-slate-800">
-        <button 
-          onClick={() => setActiveTab('dashboard')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
-        >
-          <Activity className="w-4 h-4" /> Dashboard
-        </button>
-        <button 
-          onClick={() => setActiveTab('orders')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'orders' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
-        >
-          <Package className="w-4 h-4" /> Orders
-        </button>
-        <button 
-          onClick={() => setActiveTab('leads')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'leads' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
-        >
-          <div className="relative">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-            <div className="absolute -top-1 -right-2 w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-          </div> Leads
-        </button>
-        <button 
-          onClick={() => setActiveTab('source')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'source' ? 'bg-emerald-600/20 text-emerald-400 shadow-sm border border-emerald-500/20' : 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/5'}`}
-        >
-          <Search className="w-4 h-4" /> Source
-        </button>
-        </div>
-      </div>
 
-      {activeTab === 'dashboard' ? (
-        <div className="w-full flex flex-col items-center">
+      <div className="w-full flex flex-col items-center">
           {/* ── Sync Error Banner ── */}
           {syncError && (
             <div className={`w-full max-w-3xl rounded-xl p-4 mb-6 flex items-start gap-3 animate-in slide-in-from-top duration-300 ${
@@ -484,26 +419,60 @@ export default function Done() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-4">
-                  <span className="text-sm text-slate-400">App Update</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={async () => {
-                        // @ts-ignore
-                        const { ipcRenderer } = window.require('electron');
-                        await ipcRenderer.invoke('check-for-updates');
-                      }}
-                      disabled={updateStatus?.status === 'downloading'}
-                      className="text-xs text-blue-400 hover:text-white font-medium px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {updateStatus?.status === 'downloading' ? (
-                        <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> {updateStatus.percent}%</>
-                      ) : updateStatus?.status === 'ready' ? (
-                        <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Ready (Restart)</>
-                      ) : (
-                        <><Download className="w-3.5 h-3.5" /> Check Updates</>
-                      )}
-                    </button>
+                <div className="border-t border-slate-800 pt-3 mt-3">
+                  {/* CSV Upload Drop Zone */}
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('border-emerald-500', 'bg-emerald-500/10'); }}
+                    onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-emerald-500', 'bg-emerald-500/10'); }}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove('border-emerald-500', 'bg-emerald-500/10');
+                      const file = e.dataTransfer.files[0];
+                      if (!file || !file.name.toLowerCase().endsWith('.csv')) return;
+                      // @ts-ignore
+                      const { ipcRenderer } = window.require('electron');
+                      setCsvStatus('uploading');
+                      try {
+                        const text = await file.text();
+                        const result = await ipcRenderer.invoke('process-csv-upload', { csvText: text, fileName: file.name, slug, pharmacyName: name });
+                        setCsvStatus(result.success ? 'success' : 'error');
+                        setTimeout(() => setCsvStatus('idle'), 4000);
+                      } catch (err) {
+                        setCsvStatus('error');
+                        setTimeout(() => setCsvStatus('idle'), 4000);
+                      }
+                    }}
+                    onClick={async () => {
+                      // @ts-ignore
+                      const { ipcRenderer } = window.require('electron');
+                      const filePath = await ipcRenderer.invoke('pick-csv-file');
+                      if (!filePath) return;
+                      setCsvStatus('uploading');
+                      try {
+                        const result = await ipcRenderer.invoke('process-csv-upload-from-path', { filePath, slug, pharmacyName: name });
+                        setCsvStatus(result.success ? 'success' : 'error');
+                        setTimeout(() => setCsvStatus('idle'), 4000);
+                      } catch (err) {
+                        setCsvStatus('error');
+                        setTimeout(() => setCsvStatus('idle'), 4000);
+                      }
+                    }}
+                    className={`w-full mt-0 mb-0 border-2 border-dashed rounded-xl p-2 text-center cursor-pointer transition-all ${
+                      csvStatus === 'uploading' ? 'border-amber-500/50 bg-amber-500/5' :
+                      csvStatus === 'success' ? 'border-emerald-500/50 bg-emerald-500/5' :
+                      csvStatus === 'error' ? 'border-red-500/50 bg-red-500/5' :
+                      'border-slate-700/50 hover:border-emerald-500/30 hover:bg-emerald-500/5'
+                    }`}
+                  >
+                    {csvStatus === 'uploading' ? (
+                      <p className="text-sm text-amber-400 font-semibold">Uploading and syncing...</p>
+                    ) : csvStatus === 'success' ? (
+                      <p className="text-sm text-emerald-400 font-semibold">✓ CSV uploaded and synced!</p>
+                    ) : csvStatus === 'error' ? (
+                      <p className="text-sm text-red-400 font-semibold">Upload failed. Try again.</p>
+                    ) : (
+                        <p className="text-xs text-slate-400 font-medium">Click or drop CSV to manually sync</p>
+                    )}
                   </div>
                 </div>
                 
@@ -618,33 +587,51 @@ export default function Done() {
               </div>
 
               <button
+                onClick={async () => {
+                  // @ts-ignore
+                  const { ipcRenderer } = window.require('electron');
+                  await ipcRenderer.invoke('open-store-management', slug);
+                }}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg mb-2"
+              >
+                Manage Store
+              </button>
+              <button
                 onClick={() => {
                   // @ts-ignore
                   const { shell } = window.require('electron');
                   const baseUrl = import.meta.env.DEV ? 'http://localhost:3000' : 'https://www.psx.ng';
-                  const targetUrl = slug.startsWith('guest-') 
-                    ? `${baseUrl}/auth?claim_slug=${slug}&view=storeManagement` 
+                  const targetUrl = slug.startsWith('guest-')
+                    ? `${baseUrl}/auth?claim_slug=${slug}&view=storeManagement`
                     : `${baseUrl}/?view=storeManagement`;
                   shell.openExternal(targetUrl);
                 }}
                 className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg mb-4"
               >
-                Open Web Storefront
+                Open in Browser
                 <ExternalLink className="w-5 h-5" />
               </button>
+
+
             </div>
           </div>
-        </div>
-      ) : activeTab === 'orders' ? (
-        <div className="w-full max-w-md mx-auto"><OrdersTab slug={slug} /></div>
-      ) : activeTab === 'leads' ? (
-        <div className="w-full max-w-md mx-auto"><LeadsTab slug={slug} /></div>
-      ) : (
-        <div className="w-full max-w-md mx-auto"><SourceTab slug={slug} /></div>
-      )}
+            </div>
+
 
       {/* Subtle Footer Links */}
       <div className="flex items-center justify-center gap-4 mt-6 text-xs font-medium text-slate-500">
+        <button 
+          onClick={async () => {
+            // @ts-ignore
+            const { ipcRenderer } = window.require('electron');
+            await ipcRenderer.invoke('check-for-updates');
+          }}
+          disabled={updateStatus?.status === 'downloading'}
+          className="hover:text-slate-300 transition-colors disabled:opacity-50"
+        >
+          {updateStatus?.status === 'downloading' ? `Downloading... ${updateStatus.percent}%` : updateStatus?.status === 'ready' ? 'Restart to Update' : 'Check Updates'}
+        </button>
+        <span className="opacity-30">•</span>
         <button 
           onClick={() => {
             // @ts-ignore

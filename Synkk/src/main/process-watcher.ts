@@ -168,49 +168,81 @@ export class ProcessWatcher {
   }
 
   private huntForDatabase(exePath: string): string | null {
-    const parsedPath = path.parse(exePath);
-    const installDir = parsedPath.dir;
-    
-    // 1. Check Installation Directory
-    const installDirResult = this.scanDirForDB(installDir);
-    if (installDirResult) return installDirResult;
-
-    // 2. Check AppData Directory (Roaming & Local)
-    const appName = parsedPath.name; // e.g. "VirtualRx"
-    const roamingPath = path.join(process.env.APPDATA || '', appName);
-    const localPath = path.join(process.env.LOCALAPPDATA || '', appName);
-
-    const roamingResult = this.scanDirForDB(roamingPath);
-    if (roamingResult) return roamingResult;
-
-    const localResult = this.scanDirForDB(localPath);
-    if (localResult) return localResult;
-
-    return null; // DB not found automatically
+    const results = this.deepHuntForDatabase(exePath);
+    return results.length > 0 ? results[0] : null;
   }
 
-  private scanDirForDB(dir: string): string | null {
-    if (!fs.existsSync(dir)) return null;
+  private static readonly DB_EXTENSIONS = [
+    '.db', '.sqlite', '.sqlite3', '.db3',
+    '.mdb', '.accdb',
+    '.fdb',
+    '.mdf', '.ldf', '.sdf',
+    '.dbf', '.dat',
+  ];
+
+  private static readonly SKIP_DIRS = [
+    'node_modules', 'cache', 'temp', 'tmp', 'logs', 'log',
+    '__pycache__', '.git', 'updates', 'crashpad', 'gpu_cache',
+    'code_cache', 'shader_cache',
+  ];
+
+  deepHuntForDatabase(exePath: string): string[] {
+    const parsedPath = path.parse(exePath);
+    const installDir = parsedPath.dir;
+    const appName = parsedPath.name;
+    const driveLetter = parsedPath.root || 'C:\\';
+    const found: string[] = [];
+
+    const searchDirs = [
+      installDir,
+      path.join(process.env.APPDATA || '', appName),
+      path.join(process.env.LOCALAPPDATA || '', appName),
+      path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', appName),
+      path.join(driveLetter, appName),
+      path.join(process.env.USERPROFILE || '', 'Documents', appName),
+    ];
+
+    for (const dir of searchDirs) {
+      const results = this.scanDirDeep(dir);
+      for (const r of results) {
+        if (!found.includes(r)) found.push(r);
+      }
+    }
+
+    console.log(`[ProcessWatcher] Deep hunt for ${appName}: found ${found.length} database files.`);
+    return found;
+  }
+
+  private scanDirDeep(dir: string): string[] {
+    const results: string[] = [];
+    if (!fs.existsSync(dir)) return results;
 
     try {
-      const files = fs.readdirSync(dir, { recursive: true }) as string[]; // Node 20+ recursive support
-      for (const file of files) {
-        const ext = path.extname(file).toLowerCase();
-        if (['.db', '.sqlite', '.sqlite3', '.db3'].includes(ext)) {
-          // Verify it's a file, not a directory
-          const fullPath = path.join(dir, file);
-          const stat = fs.statSync(fullPath);
-          if (stat.isFile() && stat.size > 0) {
-             console.log(`[ProcessWatcher] Found likely database: ${fullPath}`);
-             return fullPath;
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          const lower = entry.name.toLowerCase();
+          if (ProcessWatcher.SKIP_DIRS.includes(lower)) continue;
+          try {
+            const sub = this.scanDirDeep(fullPath);
+            results.push(...sub);
+          } catch (_) {}
+        } else if (entry.isFile()) {
+          const ext = path.extname(entry.name).toLowerCase();
+          if (ProcessWatcher.DB_EXTENSIONS.includes(ext)) {
+            try {
+              const stat = fs.statSync(fullPath);
+              if (stat.size > 10240) {
+                console.log(`[ProcessWatcher] Found database: ${fullPath} (${(stat.size / 1024).toFixed(0)}KB)`);
+                results.push(fullPath);
+              }
+            } catch (_) {}
           }
         }
       }
-    } catch (err) {
-      // Permission denied or other fs error
-      console.warn(`[ProcessWatcher] Could not scan directory: ${dir}`, err);
-    }
-    return null;
+    } catch (_) {}
+    return results;
   }
 }
 

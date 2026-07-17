@@ -225,11 +225,13 @@ export default function StorefrontSetup() {
               const response = await fetch('https://www.pharmastackx.com/api/auth-desktop', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                  action: 'register', 
-                  email: pendingRegistration.email, 
-                  password: pendingRegistration.password, 
+                body: JSON.stringify({
+                  action: 'register',
+                  email: pendingRegistration.email,
+                  password: pendingRegistration.password,
                   phone: pendingRegistration.phone,
+                  state: pendingRegistration.state,
+                  city: pendingRegistration.city,
                   pharmacyName: name,
                   slug: slug,
                   coordinates: coordinates
@@ -272,7 +274,7 @@ export default function StorefrontSetup() {
             // @ts-ignore
             const { ipcRenderer } = window.require('electron');
             await ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates, isNewUser: false });
-            navigate('/done', { state: { slug, name, coordinates } });
+            navigate('/dashboard/synkk/done', { state: { slug, name, coordinates } });
           } catch (err) {
             console.error(err);
             setSetupError("Network error. Please try again.");

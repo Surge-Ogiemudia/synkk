@@ -17,7 +17,7 @@ export default function WebScraper() {
 
   useEffect(() => {
     if (!url) {
-      navigate('/');
+      navigate('/dashboard/synkk');
       return;
     }
 
@@ -215,7 +215,7 @@ export default function WebScraper() {
       const response = await ipcRenderer.invoke('semantic-scrape', { text: accumulatedText, url: actualUrl });
       
       if (response.success && response.result) {
-        navigate('/confirmation', { state: { result: response.result, pathOrUrl: actualUrl, initialPayloadText: accumulatedText } });
+        navigate('/dashboard/synkk/confirmation', { state: { result: response.result, pathOrUrl: actualUrl, initialPayloadText: accumulatedText } });
       } else {
         setErrorMsg(response.error || 'Synkk could not identify inventory data on these pages. Please make sure you are on the correct page.');
         setIsScanning(false);
@@ -232,7 +232,7 @@ export default function WebScraper() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
           <button 
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/dashboard/synkk')}
             className="text-slate-400 hover:text-white flex items-center gap-1 transition-colors text-sm font-medium"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -251,9 +251,9 @@ export default function WebScraper() {
           <button 
             onClick={() => {
                // Fallback: manually trigger file dialog for CSV export
-               navigate('/analysis', { state: { method: 'drop', filePath: '' } }); // Will fail and user can try again or we can have a better fallback. Wait, just tell them to use the main screen drop.
+               navigate('/dashboard/synkk/analysis', { state: { method: 'drop', filePath: '' } }); // Will fail and user can try again or we can have a better fallback. Wait, just tell them to use the main screen drop.
                alert("Please export your inventory as a CSV from your POS, and drag it into the 'Click or Drop database' box on the home screen.");
-               navigate('/');
+               navigate('/dashboard/synkk');
             }}
             className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors border border-slate-700"
           >
