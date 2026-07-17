@@ -42,9 +42,7 @@ async function pollForCommands() {
   if (!storefrontData?.slug) return; // Not set up yet
 
   try {
-    const baseUrl = process.env.NODE_ENV === 'development'
-      ? 'http://localhost:3000'
-      : 'https://www.pharmastackx.com';
+    const baseUrl = 'https://www.pharmastackx.com';
 
     const response = await fetch(
       `${baseUrl}/api/admin/remote-commands/pending?slug=${encodeURIComponent(storefrontData.slug)}`,
@@ -234,9 +232,7 @@ async function injectRemoteCredentials(username: string, password: string, url?:
 // Alerts the PSX founder dashboard — not the pharmacist.
 export async function reportSessionExpired(pharmacySlug: string, posUrl: string) {
   try {
-    const baseUrl = process.env.NODE_ENV === 'development'
-      ? 'http://localhost:3000'
-      : 'https://www.pharmastackx.com';
+    const baseUrl = 'https://www.pharmastackx.com';
 
     await fetch(`${baseUrl}/api/admin/pharmacy/session-expired`, {
       method: 'POST',

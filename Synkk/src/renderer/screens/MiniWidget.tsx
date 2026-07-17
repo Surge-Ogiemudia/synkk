@@ -115,7 +115,7 @@ export default function MiniWidget() {
       <div className="flex-1 overflow-hidden relative">
         <iframe 
           ref={iframeRef}
-          src={import.meta.env.DEV ? 'http://localhost:3000/embed/dispensary?widget=true' : 'https://emr.psx.ng/embed/dispensary?widget=true'}
+          src="https://emr.psx.ng/embed/dispensary?widget=true"
           className="w-full h-full border-0"
           title="EMR Dispensary"
         />

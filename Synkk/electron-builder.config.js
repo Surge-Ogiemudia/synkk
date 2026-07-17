@@ -2,8 +2,8 @@
  * @type {import('electron-builder').Configuration}
  */
 const config = {
-  appId: "com.synkk.app",
-  productName: "Synkk",
+  appId: "com.pharmastackx.terminal",
+  productName: "PharmaStackX Terminal",
   directories: {
     output: "dist-electron",
     buildResources: "public"
@@ -27,8 +27,8 @@ const config = {
     perMachine: false,
     allowToChangeInstallationDirectory: false,
     runAfterFinish: true,
-    shortcutName: "Synkk",
-    artifactName: "Synkk-Setup-${version}.exe"
+    shortcutName: "PharmaStackX Terminal",
+    artifactName: "PharmaStackX-Terminal-Setup-${version}.exe"
   },
   publish: {
     provider: "github",

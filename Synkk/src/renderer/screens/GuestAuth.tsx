@@ -6,7 +6,7 @@ export default function GuestAuth() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [authState, setAuthState] = useState<'email_check' | 'register' | 'login'>('email_check');
+  const [authState, setAuthState] = useState<'email_check' | 'register' | 'login'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pharmacyName, setPharmacyName] = useState('');
@@ -51,20 +51,26 @@ export default function GuestAuth() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password) return;
+    if (!password || !email) return;
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await fetch('https://www.pharmastackx.com/api/auth-desktop?t=' + Date.now(), {
+      const isEmail = email.includes('@');
+      const res = await fetch('https://www.psx.ng/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'login', email, password })
+        body: JSON.stringify({ 
+          email: isEmail ? email : undefined,
+          phoneNumber: !isEmail ? email : undefined,
+          password 
+        })
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.token) {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
-        await ipcRenderer.invoke('save-storefront-data', { slug: data.slug, name: data.name || 'My Pharmacy', coordinates: null, isNewUser: false });
+        await ipcRenderer.invoke('set-session-cookie', { token: data.token });
+        await ipcRenderer.invoke('save-storefront-data', { slug: data.user.slug || 'local', name: data.user.businessName || 'My Pharmacy', coordinates: null, isNewUser: false });
         await ipcRenderer.invoke('save-psx-credentials', { email, password });
         navigate('/dashboard/synkk/setup');
       } else {
@@ -144,9 +150,19 @@ export default function GuestAuth() {
           {authState === 'login' && (
             <form onSubmit={handleLogin} className="flex flex-col gap-4 animate-in slide-in-from-right-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-slate-300">Welcome back!</span>
-                <button type="button" onClick={() => setAuthState('email_check')} className="text-xs text-emerald-400 hover:underline">Change Email</button>
+                <span className="text-sm text-slate-300">Sign in to your account</span>
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Email or Phone Number</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                  <input type="text" required value={email} onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                    placeholder="Email or Phone number" />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
                 <div className="relative">

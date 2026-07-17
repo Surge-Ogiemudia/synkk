@@ -11,10 +11,9 @@ function getTrayIconPath(status: 'green' | 'amber' | 'red') {
 export function setupTray() {
   const icon = nativeImage.createFromPath(getTrayIconPath('green'));
   tray = new Tray(icon);
+  tray.setToolTip('PharmaStackX Terminal');
 
   updateTrayMenu();
-
-  tray.setToolTip('Synkk Pharmacy Sync');
 
   tray.on('click', () => {
     const { BrowserWindow } = require('electron');
@@ -63,7 +62,7 @@ function updateTrayMenu(lastSyncTime?: string, medicinesCount?: number) {
   const displayCount = medicinesCount !== undefined ? medicinesCount : (storedSnapshot ? storedSnapshot.length : 0);
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Open Synkk', click: () => { 
+    { label: 'Open Terminal', click: () => { 
         const win = BrowserWindow.getAllWindows()[0];
         if (win) { win.show(); win.focus(); }
     } },
@@ -87,7 +86,7 @@ function updateTrayMenu(lastSyncTime?: string, medicinesCount?: number) {
         const { getStore } = require('../store/local');
         const storeFront = getStore('storefront');
         const isGuest = storeFront?.isGuest !== false && (storeFront?.isGuest === true || storeFront?.slug?.startsWith('guest-'));
-        const baseUrl = !app.isPackaged ? 'http://localhost:3000' : 'https://www.psx.ng';
+        const baseUrl = 'https://www.psx.ng';
         if (storeFront?.slug) {
           shell.openExternal(isGuest ? `${baseUrl}/auth?claim_slug=${storeFront.slug}` : `${baseUrl}/auth`);
         } else {

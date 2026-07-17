@@ -22,6 +22,7 @@ function createWindow() {
     },
     frame: true,
     icon: path.join(__dirname, '../public/icon.png'),
+    title: 'PharmaStackX Terminal',
   });
 
   const isHiddenBoot = process.argv.includes('--hidden-on-boot');
@@ -215,7 +216,7 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
-  app.setAppUserModelId('Synkk');
+  app.setAppUserModelId('PharmaStackX Terminal');
   if (app.isPackaged) {
     app.setLoginItemSettings({
       openAtLogin: true,
