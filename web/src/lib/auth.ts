@@ -121,7 +121,34 @@ function getProfile(): PsxProfile | null {
 }
 
 function hasSession(): boolean {
-  return getProfile() !== null;
+  if (getProfile() !== null) return true;
+  if (typeof document !== 'undefined') {
+    if (document.cookie.includes('session_token=') || document.cookie.includes('psx_user_role=')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function restoreSession(): Promise<boolean> {
+  try {
+    const res = await fetch('https://www.psx.ng/api/auth/session', { credentials: 'include' });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.user) {
+      persistProfile({
+        slug: data.user.slug || '',
+        businessName: data.user.businessName || data.user.username || 'My Pharmacy',
+        staffName: data.user.name || data.user.email,
+        role: data.user.role,
+        phone: data.user.phoneNumber || '',
+      });
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function clearSession() {
@@ -135,5 +162,6 @@ export const auth = {
   register,
   getProfile,
   hasSession,
+  restoreSession,
   clearSession,
 };
