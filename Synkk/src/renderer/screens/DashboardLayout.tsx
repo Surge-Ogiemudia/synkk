@@ -8,6 +8,7 @@ export default function DashboardLayout() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [modules, setModules] = useState({
+    psxWeb: true,
     pos: true,
     dispensary: true,
     orders: true,
@@ -59,8 +60,20 @@ export default function DashboardLayout() {
     ipcRenderer.invoke('save-app-modules', newModules);
   };
 
+  useEffect(() => {
+    const current = allNavItems.find((item) =>
+      item.path === '/dashboard' ? location.pathname === '/dashboard' : location.pathname.startsWith(item.path)
+    );
+    if (current && !current.show) {
+      const firstEnabled = allNavItems.find(item => item.show);
+      if (firstEnabled && firstEnabled.path !== location.pathname) {
+        navigate(firstEnabled.path);
+      }
+    }
+  }, [modules, location.pathname, navigate]);
+
   const allNavItems = [
-    { name: 'PSX Web', path: '/dashboard', icon: Globe, show: true },
+    { name: 'PSX Web', path: '/dashboard', icon: Globe, show: modules.psxWeb !== false },
     { name: 'POS Register', path: '/dashboard/pos', icon: ShoppingCart, show: modules.pos },
     { name: 'Synkk Engine', path: '/dashboard/synkk', icon: Settings, show: modules.synkk },
     { name: 'EMR Terminal', path: '/dashboard/emr', icon: Database, show: modules.emr },
@@ -181,6 +194,7 @@ export default function DashboardLayout() {
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {Object.entries({
+                  psxWeb: 'PSX Web',
                   pos: 'Point of Sale',
                   dispensary: 'Dispensary',
                   orders: 'Online Orders & Leads',

@@ -143,7 +143,18 @@ export default function Welcome() {
           isNewUser: false 
         });
         await ipcRenderer.invoke('save-psx-credentials', { email, password });
-        navigate('/dashboard');
+        const backendModules = await ipcRenderer.invoke('get-app-modules') || {};
+        let targetPath = '/dashboard';
+        if (backendModules.psxWeb === false) {
+           if (backendModules.pos !== false) targetPath = '/dashboard/pos';
+           else if (backendModules.emr !== false) targetPath = '/dashboard/emr';
+           else if (backendModules.dispensary !== false) targetPath = '/dashboard/dispensary';
+           else if (backendModules.orders !== false) targetPath = '/dashboard/orders';
+           else if (backendModules.source !== false) targetPath = '/dashboard/source';
+           else if (backendModules.staff !== false) targetPath = '/dashboard/staff';
+           else if (backendModules.synkk !== false) targetPath = '/dashboard/synkk';
+        }
+        navigate(targetPath);
       } else {
         setAuthError(data.error || 'Login failed.');
       }
