@@ -71,26 +71,37 @@ export function setupIpc() {
 
   ipcMain.handle('set-session-cookie', async (event, { token }) => {
     try {
-      const cookieStore = session.defaultSession.cookies;
       const expirationDate = Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7);
 
-      await cookieStore.set({
-        url: 'https://psx.ng',
-        name: 'session_token',
-        value: token,
-        domain: '.psx.ng',
-        path: '/',
-        secure: true,
-        httpOnly: true,
-        expirationDate
-      });
-      await cookieStore.set({
-        url: 'http://localhost',
-        name: 'session_token',
-        value: token,
-        path: '/',
-        expirationDate
-      });
+      // PosTab.tsx / StaffTab.tsx load pos.psx.ng in the separate 'persist:pos'
+      // partition — an isolated cookie jar that never sees anything written to
+      // session.defaultSession. That's why POS/Staff have always forced a second
+      // login even though psx-pos's own backend (getSsoSession in its session.ts)
+      // already knows how to verify this exact session_token JWT and map the
+      // 'pharmacy' role to 'admin'. Writing the same token into both partitions is
+      // what actually makes "log in once" true instead of just true for EMR/Dispensary.
+      const partitions = [session.defaultSession, session.fromPartition('persist:pos')];
+
+      for (const target of partitions) {
+        const cookieStore = target.cookies;
+        await cookieStore.set({
+          url: 'https://psx.ng',
+          name: 'session_token',
+          value: token,
+          domain: '.psx.ng',
+          path: '/',
+          secure: true,
+          httpOnly: true,
+          expirationDate
+        });
+        await cookieStore.set({
+          url: 'http://localhost',
+          name: 'session_token',
+          value: token,
+          path: '/',
+          expirationDate
+        });
+      }
       return { success: true };
     } catch (e: any) {
       console.error('Failed to set session cookie:', e);
@@ -998,9 +1009,13 @@ ipcMain.handle('update-csv-path', async (event) => {
       setStore('storefront', null);
       setStore('pairing', null);
 
-      // 2. Clear Electron's Session data (Cookies, Local Storage, IndexedDB)
+      // 2. Clear Electron's Session data (Cookies, Local Storage, IndexedDB).
+      // Also clear 'persist:pos' now that set-session-cookie writes the SSO token
+      // there too — otherwise a stale session_token would keep POS/Staff logged
+      // in after the rest of the app has logged out.
       await session.defaultSession.clearStorageData();
-      
+      await session.fromPartition('persist:pos').clearStorageData();
+
       // 3. Stop the sync scheduler loop if running
       const { stopScheduler } = require('./sync');
       stopScheduler();
