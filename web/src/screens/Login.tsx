@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, Lock, User, Check, Eye, EyeOff, Database } from 'lucide-react';
 import { auth } from '@/lib/auth';
@@ -16,6 +16,12 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (auth.hasSession()) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
 
   const handleCheckIdentifier = async (e: React.FormEvent) => {
     e.preventDefault();
