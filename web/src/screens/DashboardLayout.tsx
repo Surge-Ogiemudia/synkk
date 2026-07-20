@@ -19,7 +19,7 @@ interface NavItem {
 // scan / process watch / local DB read flow used to auto-connect to a pharmacy's
 // existing on-machine POS. There's no web equivalent and none is planned.
 const NAV_ITEMS: NavItem[] = [
-  { name: 'PSX Web', path: '/dashboard', icon: Globe },
+  { name: 'PSX Web', path: '/dashboard', icon: Globe, moduleKey: 'psxWeb' },
   { name: 'POS Register', path: '/dashboard/pos', icon: ShoppingCart, moduleKey: 'pos' },
   { name: 'EMR Terminal', path: '/dashboard/emr', icon: Database, moduleKey: 'emr' },
   { name: 'Dispensary', path: '/dashboard/dispensary', icon: Activity, moduleKey: 'dispensary' },
@@ -57,7 +57,10 @@ export default function DashboardLayout() {
       item.path === '/dashboard' ? location.pathname === '/dashboard' : location.pathname.startsWith(item.path)
     );
     if (current?.moduleKey && modules[current.moduleKey] === false) {
-      navigate('/dashboard');
+      const firstEnabled = NAV_ITEMS.find((item) => !item.moduleKey || modules[item.moduleKey] !== false);
+      if (firstEnabled && firstEnabled.path !== location.pathname) {
+        navigate(firstEnabled.path);
+      }
     }
   }, [modules, location.pathname, navigate]);
 
