@@ -31,10 +31,19 @@ const NAV_ITEMS: NavItem[] = [
 export default function DashboardLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const profile = auth.getProfile();
+  const [profile, setProfile] = useState(auth.getProfile());
   const [modules, setModules] = useState<TerminalModules>({});
   const [showSettings, setShowSettings] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Restore session data if localStorage was wiped (common in iOS PWAs) but cookies remain
+  useEffect(() => {
+    if (!profile) {
+      auth.restoreSession().then((restored) => {
+        if (restored) setProfile(auth.getProfile());
+      });
+    }
+  }, [profile]);
 
   // Desktop initialized this once at app startup in the main process, independent
   // of which screen was visible, so order/lead notifications kept flowing in the
