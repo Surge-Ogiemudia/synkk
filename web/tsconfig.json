@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    // baseUrl is deprecated for TS 7 but still required pre-7 for non-relative
+    // "paths" entries like "@/*" below — silence the warning rather than drop
+    // the option and break path aliasing.
+    "ignoreDeprecations": "6.0",
+    "target": "es2023",
+    "module": "esnext",
+    "lib": ["ES2023", "DOM"],
+    "types": ["vite/client"],
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "strict": true
+  },
+  "include": ["src"]
+}
