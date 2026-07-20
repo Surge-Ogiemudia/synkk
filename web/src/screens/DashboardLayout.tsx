@@ -34,7 +34,7 @@ export default function DashboardLayout() {
   const profile = auth.getProfile();
   const [modules, setModules] = useState<TerminalModules>({});
   const [showSettings, setShowSettings] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Desktop initialized this once at app startup in the main process, independent
   // of which screen was visible, so order/lead notifications kept flowing in the
@@ -66,9 +66,43 @@ export default function DashboardLayout() {
     navigate('/');
   };
 
+  const handleNavClick = (path: string) => {
+    navigate(path);
+    setIsSidebarOpen(false);
+  };
+
   return (
-    <div className="flex h-screen w-full bg-[#050505] text-slate-100 overflow-hidden">
-      <div className={`transition-all duration-300 ease-in-out border-r border-slate-800 bg-slate-900/50 backdrop-blur-xl flex flex-col z-20 shadow-2xl shrink-0 ${isSidebarOpen ? 'w-64' : 'w-0 overflow-hidden border-none'}`}>
+    <div className="flex flex-col h-screen w-full bg-[#050505] text-slate-100 overflow-hidden relative">
+      {/* Top Header Bar */}
+      <div className="h-14 border-b border-slate-800 flex items-center px-4 shrink-0 bg-slate-900/50 z-10">
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          className="p-2 bg-slate-800 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <span className="ml-4 font-bold text-slate-200">Terminal</span>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 relative overflow-hidden bg-[#050505]">
+        <Outlet />
+      </div>
+
+      {/* Sidebar Overlay Backdrop */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm transition-opacity"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar Drawer */}
+      <div 
+        className={`fixed inset-y-0 left-0 z-50 w-64 border-r border-slate-800 bg-[#050505]/95 backdrop-blur-xl flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
         <div className="p-6 border-b border-slate-800 flex items-center justify-between shrink-0 whitespace-nowrap">
           <div className="flex items-center gap-3 overflow-hidden">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 shadow-lg shadow-emerald-500/20 flex items-center justify-center font-bold text-white text-xs uppercase shrink-0">
@@ -83,7 +117,7 @@ export default function DashboardLayout() {
               </p>
             </div>
           </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="text-slate-400 hover:text-white shrink-0 ml-2">
+          <button onClick={() => setIsSidebarOpen(false)} className="text-slate-400 hover:text-white shrink-0 ml-2 p-1">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -97,7 +131,7 @@ export default function DashboardLayout() {
             return (
               <button
                 key={item.path}
-                onClick={() => navigate(item.path)}
+                onClick={() => handleNavClick(item.path)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
                   isActive
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-inner'
@@ -113,7 +147,10 @@ export default function DashboardLayout() {
 
         <div className="p-4 border-t border-slate-800 space-y-2">
           <button
-            onClick={() => setShowSettings(true)}
+            onClick={() => {
+              setShowSettings(true);
+              setIsSidebarOpen(false);
+            }}
             className="flex items-center justify-center gap-2 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold rounded-xl transition-colors"
           >
             <Settings className="w-4 h-4 shrink-0" /> <span className="whitespace-nowrap">Terminal Settings</span>
@@ -125,18 +162,6 @@ export default function DashboardLayout() {
             <LogOut className="w-4 h-4 shrink-0" /> <span className="whitespace-nowrap">Log Out</span>
           </button>
         </div>
-      </div>
-
-      <div className="flex-1 relative overflow-hidden bg-[#050505]">
-        {!isSidebarOpen && (
-          <button
-            onClick={() => setIsSidebarOpen(true)}
-            className="absolute top-4 left-4 z-40 p-2.5 bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 shadow-xl transition-all"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-        )}
-        <Outlet />
       </div>
 
       {showSettings && (
