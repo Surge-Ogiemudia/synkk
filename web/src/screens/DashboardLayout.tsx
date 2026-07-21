@@ -73,8 +73,8 @@ export default function DashboardLayout() {
     }
   }, [modules, location.pathname, navigate]);
 
-  const handleLogout = () => {
-    auth.clearSession();
+  const handleLogout = async () => {
+    await auth.clearSession();
     navigate('/');
   };
 

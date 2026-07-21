@@ -151,9 +151,20 @@ async function restoreSession(): Promise<boolean> {
   }
 }
 
-function clearSession() {
+async function clearSession() {
   localStorage.removeItem(PROFILE_KEY);
+  localStorage.removeItem('psx_cached_user');
   document.cookie = 'session_token=; domain=.psx.ng; path=/; max-age=0';
+  document.cookie = 'psx_user_role=; domain=.psx.ng; path=/; max-age=0';
+  // Hit the server-side logout to clear the httpOnly cookie
+  try {
+    await fetch('https://www.psx.ng/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    });
+  } catch (e) {
+    console.error('Server logout failed:', e);
+  }
 }
 
 export const auth = {
