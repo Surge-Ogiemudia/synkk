@@ -167,6 +167,12 @@ async function clearSession() {
   }
 }
 
+function getSessionToken(): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(/(?:^|;\s*)session_token=([^;]+)/);
+  return match ? match[1] : null;
+}
+
 export const auth = {
   checkIdentifier,
   login,
@@ -175,4 +181,5 @@ export const auth = {
   hasSession,
   restoreSession,
   clearSession,
+  getSessionToken,
 };

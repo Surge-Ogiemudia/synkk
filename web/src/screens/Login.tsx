@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, ArrowLeft, Lock, User, Check, Eye, EyeOff, Database } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Lock, User, Check, Eye, EyeOff, Database, Loader2, AlertCircle } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import { getTerminalModules } from '@/lib/api';
+import { bridgeLogin } from '@/lib/sso';
 
-type Stage = 'identifier' | 'login' | 'register' | 'register_success';
+type Stage = 'identifier' | 'login' | 'register' | 'register_success' | 'connecting';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [ssoProgress, setSsoProgress] = useState<Record<string, 'connecting' | 'success' | 'failed'>>({});
 
   useEffect(() => {
     if (auth.hasSession()) {
@@ -46,6 +48,19 @@ export default function Login() {
     const result = await auth.login(identifier, password);
     if (result.ok) {
       const modules = await getTerminalModules();
+      
+      const servicesToConnect: ('pos' | 'emr')[] = [];
+      if (modules.pos !== false || modules.staff !== false) servicesToConnect.push('pos');
+      if (modules.emr !== false || modules.dispensary !== false) servicesToConnect.push('emr');
+
+      if (servicesToConnect.length > 0) {
+        setStage('connecting');
+        const token = auth.getSessionToken() || '';
+        await bridgeLogin(token, servicesToConnect, (service, status) => {
+          setSsoProgress(prev => ({ ...prev, [service]: status }));
+        });
+      }
+      
       let targetPath = '/dashboard';
       if (modules.psxWeb === false) {
         if (modules.pos !== false) targetPath = '/dashboard/pos';
@@ -261,6 +276,70 @@ export default function Login() {
               >
                 Return to Login
               </button>
+            </div>
+          )}
+
+          {stage === 'connecting' && (
+            <div className="flex flex-col gap-6 animate-in zoom-in-95 duration-500 text-center">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-2">
+                <Database className="w-8 h-8 animate-pulse" />
+              </div>
+              <h2 className="text-xl font-bold text-white">Connecting Services</h2>
+              <p className="text-slate-300 text-sm leading-relaxed max-w-[280px] mx-auto">
+                Logging you in across your terminal modules...
+              </p>
+              
+              <div className="flex flex-col gap-3 mt-4 text-left bg-black/40 p-4 rounded-xl border border-white/10">
+                {/* PSX Web is always instantly connected on successful login */}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-200">PSX Web</span>
+                  <span className="flex items-center gap-1 text-emerald-400">
+                    <Check className="w-4 h-4" /> Connected
+                  </span>
+                </div>
+
+                {Object.keys(ssoProgress).includes('pos') && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-200">POS Register</span>
+                    {ssoProgress['pos'] === 'connecting' && (
+                      <span className="flex items-center gap-2 text-slate-400">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Connecting...
+                      </span>
+                    )}
+                    {ssoProgress['pos'] === 'success' && (
+                      <span className="flex items-center gap-1 text-emerald-400">
+                        <Check className="w-4 h-4" /> Connected
+                      </span>
+                    )}
+                    {ssoProgress['pos'] === 'failed' && (
+                      <span className="flex items-center gap-1 text-red-400">
+                        <AlertCircle className="w-4 h-4" /> Failed
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {Object.keys(ssoProgress).includes('emr') && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-200">EMR Terminal</span>
+                    {ssoProgress['emr'] === 'connecting' && (
+                      <span className="flex items-center gap-2 text-slate-400">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Connecting...
+                      </span>
+                    )}
+                    {ssoProgress['emr'] === 'success' && (
+                      <span className="flex items-center gap-1 text-emerald-400">
+                        <Check className="w-4 h-4" /> Connected
+                      </span>
+                    )}
+                    {ssoProgress['emr'] === 'failed' && (
+                      <span className="flex items-center gap-1 text-red-400">
+                        <AlertCircle className="w-4 h-4" /> Failed
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
