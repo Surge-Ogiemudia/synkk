@@ -17,7 +17,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [ssoProgress, setSsoProgress] = useState<Record<string, 'connecting' | 'success' | 'failed'>>({});
+  const [statusText, setStatusText] = useState('Log In');
 
   useEffect(() => {
     if (auth.hasSession()) {
@@ -44,6 +44,7 @@ export default function Login() {
     e.preventDefault();
     if (!password) return;
     setLoading(true);
+    setStatusText('Logging in...');
     setError('');
     const result = await auth.login(identifier, password);
     if (result.ok) {
@@ -54,10 +55,24 @@ export default function Login() {
       if (modules.emr !== false || modules.dispensary !== false) servicesToConnect.push('emr');
 
       if (servicesToConnect.length > 0) {
-        setStage('connecting');
+        setStatusText('Connecting PSX Web...');
+        // Brief pause so they see PSX Web connected
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        let pending = [...servicesToConnect];
+        if (pending.includes('pos')) setStatusText('Connecting POS...');
+        else if (pending.includes('emr')) setStatusText('Connecting EMR...');
+
         const token = auth.getSessionToken() || '';
         await bridgeLogin(token, servicesToConnect, (service, status) => {
-          setSsoProgress(prev => ({ ...prev, [service]: status }));
+          if (status === 'success' || status === 'failed') {
+             pending = pending.filter(s => s !== service);
+             if (pending.length > 0) {
+               setStatusText(`Connecting ${pending[0].toUpperCase()}...`);
+             } else {
+               setStatusText('Starting Terminal...');
+             }
+          }
         });
       }
       
@@ -74,6 +89,7 @@ export default function Login() {
       navigate(targetPath);
     } else {
       setLoading(false);
+      setStatusText('Log In');
       setError(result.error || 'Login failed.');
     }
   };
@@ -147,7 +163,7 @@ export default function Login() {
             <form onSubmit={handleLogin} className="flex flex-col gap-4 animate-in slide-in-from-right-4">
               <button
                 type="button"
-                onClick={() => { setStage('identifier'); setError(''); }}
+                onClick={() => { setStage('identifier'); setError(''); setStatusText('Log In'); }}
                 className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors mb-2"
               >
                 <ArrowLeft className="w-4 h-4" /> Back
@@ -178,7 +194,7 @@ export default function Login() {
                 disabled={loading}
                 className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-colors mt-2 disabled:opacity-50"
               >
-                {loading ? 'Logging in...' : 'Log In'} <Check className="w-4 h-4" />
+                {statusText} {loading ? <Loader2 className="w-4 h-4 animate-spin ml-2" /> : <Check className="w-4 h-4 ml-2" />}
               </button>
             </form>
           )}
@@ -278,70 +294,11 @@ export default function Login() {
               </button>
             </div>
           )}
-
-          {stage === 'connecting' && (
-            <div className="flex flex-col gap-6 animate-in zoom-in-95 duration-500 text-center">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-2">
-                <Database className="w-8 h-8 animate-pulse" />
-              </div>
-              <h2 className="text-xl font-bold text-white">Connecting Services</h2>
-              <p className="text-slate-300 text-sm leading-relaxed max-w-[280px] mx-auto">
-                Logging you in across your terminal modules...
-              </p>
-              
-              <div className="flex flex-col gap-3 mt-4 text-left bg-black/40 p-4 rounded-xl border border-white/10">
-                {/* PSX Web is always instantly connected on successful login */}
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-200">PSX Web</span>
-                  <span className="flex items-center gap-1 text-emerald-400">
-                    <Check className="w-4 h-4" /> Connected
-                  </span>
-                </div>
-
-                {Object.keys(ssoProgress).includes('pos') && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-200">POS Register</span>
-                    {ssoProgress['pos'] === 'connecting' && (
-                      <span className="flex items-center gap-2 text-slate-400">
-                        <Loader2 className="w-4 h-4 animate-spin" /> Connecting...
-                      </span>
-                    )}
-                    {ssoProgress['pos'] === 'success' && (
-                      <span className="flex items-center gap-1 text-emerald-400">
-                        <Check className="w-4 h-4" /> Connected
-                      </span>
-                    )}
-                    {ssoProgress['pos'] === 'failed' && (
-                      <span className="flex items-center gap-1 text-red-400">
-                        <AlertCircle className="w-4 h-4" /> Failed
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {Object.keys(ssoProgress).includes('emr') && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-200">EMR Terminal</span>
-                    {ssoProgress['emr'] === 'connecting' && (
-                      <span className="flex items-center gap-2 text-slate-400">
-                        <Loader2 className="w-4 h-4 animate-spin" /> Connecting...
-                      </span>
-                    )}
-                    {ssoProgress['emr'] === 'success' && (
-                      <span className="flex items-center gap-1 text-emerald-400">
-                        <Check className="w-4 h-4" /> Connected
-                      </span>
-                    )}
-                    {ssoProgress['emr'] === 'failed' && (
-                      <span className="flex items-center gap-1 text-red-400">
-                        <AlertCircle className="w-4 h-4" /> Failed
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+        </div>
+      </div>
+    </div>
+  );
+}
         </div>
       </div>
     </div>
