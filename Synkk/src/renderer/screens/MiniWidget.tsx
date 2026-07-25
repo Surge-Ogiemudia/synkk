@@ -113,11 +113,13 @@ export default function MiniWidget() {
     <div className="h-screen w-screen bg-white flex flex-col overflow-hidden font-['Outfit',sans-serif]">
       {/* Main EMR Frame taking ~90% */}
       <div className="flex-1 overflow-hidden relative">
-        <iframe 
-          ref={iframeRef}
+        {/* @ts-ignore */}
+        <webview 
+          ref={iframeRef as any}
           src="https://emr.psx.ng/embed/dispensary?widget=true"
           className="w-full h-full border-0"
           title="EMR Dispensary"
+          allowpopups={true as any}
         />
 
         {/* Notification Overlay */}
