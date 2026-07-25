@@ -37,6 +37,7 @@ export function launchBubbleWidget(posNameHint: string = '') {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      webviewTag: true,
     },
     icon: path.join(__dirname, '../public/icon.png'),
   });
