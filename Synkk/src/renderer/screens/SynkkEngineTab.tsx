@@ -112,13 +112,13 @@ export default function SynkkEngineTab() {
            <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
            <p className="text-sm text-emerald-400/80">Synkk is scanning your system for POS software...</p>
         </div>
-      ) : discoveredPOS.length > 0 && (
+      ) : discoveredPOS.length > 0 && !showPOSTypeSelector && (
         <div className="w-full max-w-3xl mb-12 animate-in slide-in-from-bottom-4 duration-500">
           <h2 className="text-xl font-medium text-white mb-4 flex items-center gap-2">
             <HardDrive className="w-5 h-5 text-emerald-400" />
             Auto-Discovered Systems
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full mb-4">
             {discoveredPOS.map((pos, idx) => (
               <div 
                 key={idx}
@@ -135,6 +135,15 @@ export default function SynkkEngineTab() {
                 <ArrowRight className="w-5 h-5 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all shrink-0 ml-2" />
               </div>
             ))}
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowPOSTypeSelector(true)}
+              className="text-xs font-semibold px-4 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-colors border border-slate-700/60 flex items-center gap-2"
+            >
+              <span>None of these? Ignore & select Web POS or manual setup</span>
+              <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
+            </button>
           </div>
         </div>
       )}
