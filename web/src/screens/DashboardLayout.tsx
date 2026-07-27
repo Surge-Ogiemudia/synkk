@@ -34,6 +34,7 @@ export default function DashboardLayout() {
   const location = useLocation();
   const [profile, setProfile] = useState(auth.getProfile());
   const [modules, setModules] = useState<TerminalModules>({});
+  const [loadingModules, setLoadingModules] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -59,22 +60,27 @@ export default function DashboardLayout() {
   }, [profile?.slug]);
 
   useEffect(() => {
-    getTerminalModules().then(setModules);
+    getTerminalModules().then((res) => {
+      setModules(res);
+      setLoadingModules(false);
+    });
   }, []);
 
   // If the tab someone's currently on gets switched off (from this device or
   // another one, since it's synced), don't leave them stranded on a hidden page.
   useEffect(() => {
+    if (loadingModules) return;
+
     const current = NAV_ITEMS.find((item) =>
       item.path === '/dashboard' ? location.pathname === '/dashboard' : location.pathname.startsWith(item.path)
     );
     if (current?.moduleKey && modules[current.moduleKey] === false) {
       const firstEnabled = NAV_ITEMS.find((item) => !item.moduleKey || modules[item.moduleKey] !== false);
       if (firstEnabled && firstEnabled.path !== location.pathname) {
-        navigate(firstEnabled.path);
+        navigate(firstEnabled.path, { replace: true });
       }
     }
-  }, [modules, location.pathname, navigate]);
+  }, [loadingModules, modules, location.pathname, navigate]);
 
   const handleLogout = async () => {
     setSigningOut(true);
@@ -191,6 +197,34 @@ export default function DashboardLayout() {
 
       {showSettings && (
         <SettingsModal modules={modules} onChange={setModules} onClose={() => setShowSettings(false)} />
+      )}
+
+      {/* Initial Module Loading Splash Overlay */}
+      {loadingModules && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#050505] animate-in fade-in duration-300">
+          <div className="relative flex flex-col items-center gap-6">
+            {/* Glowing background aura */}
+            <div className="absolute w-36 h-36 rounded-full bg-emerald-500/20 blur-2xl animate-pulse" />
+
+            {/* Animated PWA Logo */}
+            <div className="relative w-24 h-24 rounded-3xl p-1 bg-gradient-to-br from-emerald-400 to-cyan-500 shadow-[0_0_50px_rgba(16,185,129,0.35)] animate-pulse">
+              <img 
+                src="/icon-192.png" 
+                alt="PharmaStackX" 
+                className="w-full h-full object-cover rounded-[22px] shadow-inner"
+              />
+            </div>
+
+            {/* Status Indicator */}
+            <div className="flex flex-col items-center gap-2">
+              <h2 className="text-lg font-bold text-white tracking-wide">PharmaStackX</h2>
+              <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
+                <Loader2 className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+                <span>Synchronizing terminal...</span>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Signing Out Overlay */}
