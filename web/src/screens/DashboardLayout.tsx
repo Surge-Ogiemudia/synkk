@@ -34,6 +34,7 @@ export default function DashboardLayout() {
   const location = useLocation();
   const [profile, setProfile] = useState(auth.getProfile());
   const [modules, setModules] = useState<TerminalModules>({});
+  const [modulesFetched, setModulesFetched] = useState(false);
   const [loadingModules, setLoadingModules] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -62,25 +63,35 @@ export default function DashboardLayout() {
   useEffect(() => {
     getTerminalModules().then((res) => {
       setModules(res);
-      setLoadingModules(false);
+      setModulesFetched(true);
     });
   }, []);
 
-  // If the tab someone's currently on gets switched off (from this device or
-  // another one, since it's synced), don't leave them stranded on a hidden page.
+  // Handle route redirect and seamless splash overlay dismissal
   useEffect(() => {
-    if (loadingModules) return;
+    if (!modulesFetched) return;
 
     const current = NAV_ITEMS.find((item) =>
       item.path === '/dashboard' ? location.pathname === '/dashboard' : location.pathname.startsWith(item.path)
     );
+
+    // If current tab is disabled, redirect to first enabled tab
     if (current?.moduleKey && modules[current.moduleKey] === false) {
       const firstEnabled = NAV_ITEMS.find((item) => !item.moduleKey || modules[item.moduleKey] !== false);
       if (firstEnabled && firstEnabled.path !== location.pathname) {
         navigate(firstEnabled.path, { replace: true });
+        return; // Keep splash overlay active while router updates the location
       }
     }
-  }, [loadingModules, modules, location.pathname, navigate]);
+
+    // Hide splash overlay once we are firmly on an enabled tab
+    if (loadingModules) {
+      const timer = setTimeout(() => {
+        setLoadingModules(false);
+      }, 120);
+      return () => clearTimeout(timer);
+    }
+  }, [modulesFetched, modules, location.pathname, navigate, loadingModules]);
 
   const handleLogout = async () => {
     setSigningOut(true);
