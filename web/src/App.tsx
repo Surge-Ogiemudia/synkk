@@ -18,11 +18,18 @@ function RequireSession({ children }: { children: React.ReactElement }) {
   return children;
 }
 
+function RootRoute() {
+  if (auth.hasSession()) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <Login />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Login />} />
+        <Route path="/" element={<RootRoute />} />
         <Route
           path="/dashboard"
           element={
