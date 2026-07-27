@@ -226,6 +226,12 @@ if (!gotTheLock) {
     });
   }
 
+  // Automatically bypass certificate errors (e.g. expired SSL certs on legacy Web POS servers)
+  app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
+    event.preventDefault();
+    callback(true);
+  });
+
   createWindow();
   setupTray();
   setupUpdater();
