@@ -1,7 +1,7 @@
 {
   "name": "pharmastackx-terminal",
   "private": true,
-  "version": "1.2.8",
+  "version": "1.2.9",
   "author": "PharmaStackX",
   "description": "PharmaStackX Pro Terminal",
   "main": "dist-main/index.js",
