@@ -411,17 +411,17 @@ export default function Welcome() {
            <p className="text-sm text-emerald-400/80">Synkk is scanning your system for POS software...</p>
         </div>
       ) : discoveredPOS.length > 0 && !showPOSTypeSelector && (
-        <div className="w-full max-w-3xl mb-12 animate-in slide-in-from-bottom-4 duration-500">
-          <h2 className="text-xl font-medium text-white mb-4 flex items-center gap-2">
+        <div className="w-full max-w-3xl mb-12 flex flex-col items-center animate-in slide-in-from-bottom-4 duration-500">
+          <h2 className="text-xl font-medium text-white mb-6 flex items-center justify-center gap-2">
             <HardDrive className="w-5 h-5 text-emerald-400" />
             Auto-Discovered Systems
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full mb-4">
+          <div className="flex flex-wrap justify-center gap-4 w-full mb-6">
             {discoveredPOS.map((pos, idx) => (
               <div 
                 key={idx}
                 onClick={() => navigate('/analysis', { state: { method: 'drop', filePath: pos.executablePath } })}
-                className="glass-panel glass-panel-hover flex items-center p-6 rounded-2xl cursor-pointer group"
+                className="glass-panel glass-panel-hover flex items-center p-6 rounded-2xl cursor-pointer group w-full sm:w-[calc(50%-0.5rem)] max-w-md"
               >
                 <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center mr-4 shrink-0">
                   <Database className="w-6 h-6 text-emerald-400" />
@@ -434,13 +434,13 @@ export default function Welcome() {
               </div>
             ))}
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-center w-full">
             <button
               onClick={() => setShowPOSTypeSelector(true)}
-              className="text-xs font-semibold px-4 py-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-colors border border-slate-700/60 flex items-center gap-2"
+              className="text-xs font-semibold px-6 py-3 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-all border border-slate-700/60 flex items-center gap-2 shadow-lg hover:border-emerald-500/40"
             >
               <span>None of these? Ignore & select Web POS or manual setup</span>
-              <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
+              <ArrowRight className="w-4 h-4 text-emerald-400" />
             </button>
           </div>
         </div>
