@@ -1,4 +1,4 @@
-﻿import { getStore, setStore } from '../store/local';
+import { getStore, setStore } from '../store/local';
 import { updateTrayStatus } from './tray';
 import { sendFailureAlertEmail } from './mailer';
 import { net, safeStorage, BrowserWindow, app, session } from 'electron';
@@ -7,6 +7,7 @@ import { lookupKnownMethod, reportSuccessfulMethod, applyKnownMethod } from './c
 import { startLiveBroadcast } from './live-broadcast';
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 
 // ── File logger ───────────────────────────────────────────────────────
 const logDir = path.join(app.getPath('userData'), 'logs');
@@ -227,10 +228,77 @@ function classifyError(rawMessage: string): SyncError {
   };
 }
 
+// ── Telemetry Collector ───────────────────────────────────────────────
+interface TelemetryStep {
+  time: string;
+  action: string;
+  detail: string;
+  success: boolean;
+}
+
+interface TelemetryPayload {
+  pharmacySlug: string;
+  pharmacyName: string;
+  syncId: string;
+  timestamp: string;
+  duration?: number;
+  trigger: string;
+  posMethod: string;
+  posIdentifier: string;
+  steps: TelemetryStep[];
+  result: string;
+  itemsExtracted: number;
+  itemsPushed: number;
+  errorCode?: string;
+  errorMessage?: string;
+  syncTier?: number;
+  tierAttempts: Array<{ tier: number; success: boolean; error?: string }>;
+  posName?: string;
+  posDomain?: string;
+}
+
+function createTelemetryCollector() {
+  const steps: TelemetryStep[] = [];
+  const tierAttempts: Array<{ tier: number; success: boolean; error?: string }> = [];
+  const syncId = randomUUID();
+  const startTime = Date.now();
+
+  return {
+    syncId,
+    steps,
+    tierAttempts,
+    addStep(action: string, detail: string, success: boolean) {
+      steps.push({ time: new Date().toISOString(), action, detail, success });
+    },
+    addTierAttempt(tier: number, success: boolean, error?: string) {
+      tierAttempts.push({ tier, success, error });
+    },
+    getDuration() {
+      return Date.now() - startTime;
+    }
+  };
+}
+
+async function shipTelemetry(payload: TelemetryPayload) {
+  try {
+    const axios = require('axios');
+    await axios.post('https://www.pharmastackx.com/api/synkk-admin/telemetry', payload, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
+      },
+      timeout: 15000
+    });
+    console.log('[TELEMETRY] Successfully shipped sync telemetry to cloud.');
+  } catch (e: any) {
+    console.error('[TELEMETRY] Failed to ship telemetry:', e.message);
+  }
+}
+
 // ── Main Sync Entry Point ─────────────────────────────────────────────
 let isSyncEngineRunning = false;
 
-export async function executeSync(): Promise<{ status: string; error?: SyncError }> {
+export async function executeSync(trigger: string = 'scheduled'): Promise<{ status: string; error?: SyncError }> {
   if (isSyncEngineRunning) {
     console.log('Sync is already running. Ignoring overlapping request.');
     broadcastSyncStream('[SYSTEM] A sync is already in progress. Ignoring overlapping request.');
@@ -242,12 +310,17 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
   broadcastSyncError(null); // Clear previous errors
   broadcastSyncProgress(10, 'Initializing sync cycle...');
   const pairingData = (getStore('pairing') || { name: 'Unknown Pharmacy' }) as any;
+  const storefrontData = (getStore('storefront') || { slug: 'unknown', name: 'Unknown' }) as any;
+  const telemetry = createTelemetryCollector();
+  const posMethod = pairingData.posIdentifier?.startsWith('http') ? 'web' : (pairingData.posIdentifier ? 'local_db' : 'unknown');
+  telemetry.addStep('SYNC_START', `Trigger: ${trigger}, POS: ${posMethod}`, true);
   
   try {
     // 1. Check hardware network connection
     if (!net.isOnline()) {
       console.log('Network offline. Queuing inventory snapshot locally...');
       updateTrayStatus('amber', 'Offline - Queuing', 0);
+      telemetry.addStep('NETWORK_CHECK', 'Device is offline', false);
       
       // Extract latest inventory locally and freeze it
       const snapshot = {
@@ -279,13 +352,13 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     }
 
     // 3. Normal online extraction
+    telemetry.addStep('NETWORK_CHECK', 'Device is online', true);
     console.log('Extracting latest inventory...');
     broadcastSyncProgress(30, 'Extracting latest inventory...');
     
     // Set up progressive streaming logic
     const lastSyncSnapshot = (getStore('lastSyncSnapshot') || []) as any[];
     const lastMap = new Map((lastSyncSnapshot as any[]).map(item => [item.name, item]));
-    const storefrontData = (getStore('storefront') || { slug: 'unknown', name: 'Unknown' }) as any;
     const axios = require('axios');
     let totalStreamedUpdates = 0;
     
@@ -337,6 +410,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     if (pairingData.posIdentifier && pairingData.posIdentifier.startsWith('http')) {
       // Branch 2: Web POS (Hidden Browser Window)
       console.log('Target is Web POS. Spawning background browser...');
+      telemetry.addStep('EXTRACTION_START', 'Target is Web POS — spawning background browser', true);
       let attempts = 0;
       const maxAttempts = 3;
       let success = false;
@@ -354,8 +428,12 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
           rawInventory = result.items;
           syncTier = result.tier;
           success = true;
+          telemetry.addStep('WEB_POS_EXTRACTION', `Attempt ${attempts}: Extracted ${result.items.length} items via Tier ${result.tier}`, true);
+          telemetry.addTierAttempt(result.tier, true);
         } catch (err: any) {
           lastErrMessage = err.message;
+          telemetry.addStep('WEB_POS_EXTRACTION', `Attempt ${attempts} failed: ${err.message}`, false);
+          telemetry.addTierAttempt(attempts, false, err.message);
           if (!lastErrMessage.includes('ALL_TIERS_FAILED')) {
              throw err; // Not a validation/extraction failure, something else broke, so abort.
           }
@@ -401,6 +479,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     } else if (pairingData.posIdentifier) {
       // Branch 1: Local SQLite DB
       console.log('Target is Local Database. Executing SQLite extraction...');
+      telemetry.addStep('EXTRACTION_START', 'Target is Local Database', true);
       
       // Foundational Fix: Run SELECT COUNT(*) before extraction to know the expected total
       let localDbTotal: CountResult = { status: 'unverifiable', reason: 'Non-SQLite file type' };
@@ -424,6 +503,8 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
       rawInventory = await extractFromLocalDB(pairingData.posIdentifier, pairingData.schemaMapping);
       validateExtractedCount(rawInventory.length, localDbTotal, 'Local DB');
       syncTier = 1;
+      telemetry.addStep('LOCAL_DB_EXTRACTION', `Extracted ${rawInventory.length} items from local database`, true);
+      telemetry.addTierAttempt(1, true);
     }
 
     // Safety Guard removed by User Request:
@@ -493,6 +574,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
         timeout: 30000 // Increased from 10s to 30s to allow AI classification to finish
       });
       console.log('Successfully pushed to MongoDB via Web Relay!');
+      telemetry.addStep('CLOUD_PUSH', `Pushed ${updates.length} updates and ${deletes.length} deletes to cloud`, true);
       
       if (response.data && response.data.newSlug && response.data.newSlug !== storefrontData.slug) {
         console.log(`Auto-upgrading guest slug from ${storefrontData.slug} to ${response.data.newSlug}`);
@@ -506,6 +588,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     } catch (pushError: any) {
       console.error('Failed to push to cloud API:', pushError.message);
       broadcastSyncProgress(90, `Cloud Push Failed: ${pushError.message}`);
+      telemetry.addStep('CLOUD_PUSH', `Push failed: ${pushError.message}`, false);
       await new Promise(r => setTimeout(r, 5000));
       throw new Error(`Cloud Push Failed: ${pushError.message}`);
     }
@@ -517,6 +600,25 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     setStore('lastSyncError', null);
     broadcastSyncProgress(100, 'Complete');
     broadcastSyncSuccess();
+    telemetry.addStep('SYNC_COMPLETE', `Success — ${rawInventory.length} items extracted, Tier ${syncTier}`, true);
+    
+    // Ship telemetry to cloud
+    shipTelemetry({
+      pharmacySlug: storefrontData.slug,
+      pharmacyName: storefrontData.name,
+      syncId: telemetry.syncId,
+      timestamp: new Date().toISOString(),
+      duration: telemetry.getDuration(),
+      trigger,
+      posMethod,
+      posIdentifier: pairingData.posIdentifier || '',
+      steps: telemetry.steps,
+      result: 'success',
+      itemsExtracted: rawInventory.length,
+      itemsPushed: updates.length + totalStreamedUpdates,
+      syncTier,
+      tierAttempts: telemetry.tierAttempts,
+    });
     
     return { status: 'success' };
     
@@ -524,6 +626,7 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
     console.error('Sync failed:', error);
     
     const syncError = classifyError(error.message || 'Unknown error');
+    telemetry.addStep('SYNC_FAILED', `${syncError.code}: ${error.message}`, false);
     
     // Store the error for the dashboard to pick up
     setStore('lastSyncError', {
@@ -542,6 +645,25 @@ export async function executeSync(): Promise<{ status: string; error?: SyncError
       `Error Code: ${syncError.code}`
     );
     
+    // Ship failure telemetry to cloud
+    shipTelemetry({
+      pharmacySlug: storefrontData.slug,
+      pharmacyName: storefrontData.name,
+      syncId: telemetry.syncId,
+      timestamp: new Date().toISOString(),
+      duration: telemetry.getDuration(),
+      trigger,
+      posMethod,
+      posIdentifier: pairingData.posIdentifier || '',
+      steps: telemetry.steps,
+      result: 'failed',
+      itemsExtracted: 0,
+      itemsPushed: 0,
+      errorCode: syncError.code,
+      errorMessage: error.message,
+      syncTier: undefined,
+      tierAttempts: telemetry.tierAttempts,
+    });
     
     throw error;
   } finally {
