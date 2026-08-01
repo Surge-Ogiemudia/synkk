@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Globe, ShoppingCart, Database, Activity, Box, Search, Users, LogOut, Settings, Menu, X, Loader2 } from 'lucide-react';
+import { Globe, ShoppingCart, Database, Activity, Box, Search, Users, LogOut, Settings, Menu, X, Loader2, Sparkles } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import { ensurePusherConnected } from '@/lib/pusher';
 import { getTerminalModules, type TerminalModules } from '@/lib/api';
@@ -27,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Online Orders & Leads', path: '/dashboard/orders', icon: Box, moduleKey: 'orders' },
   { name: 'Source', path: '/dashboard/source', icon: Search, moduleKey: 'source' },
   { name: 'Staff Management', path: '/dashboard/staff', icon: Users, moduleKey: 'staff' },
+  { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, moduleKey: 'psxWeb' },
 ];
 
 export default function DashboardLayout() {
