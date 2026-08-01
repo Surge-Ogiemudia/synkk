@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Sparkles, Globe, Copy, ExternalLink, Coins, RefreshCw, 
   Leaf, BookOpen, Layers, Target, Edit3, Image as ImageIcon,
-  Check, ArrowRight, Download, Calendar, Layers3
+  Check, ArrowRight, Download, Calendar, Layers3, Settings,
+  Lock, Sliders, Upload, Plus, Trash2, Megaphone, X, MessageSquare
 } from 'lucide-react';
 import { auth } from '@/lib/auth';
 
@@ -17,6 +18,7 @@ interface SocialPostItem {
   featuredProducts?: Array<{ name: string; price: number; image?: string }>;
   tokenCost: number;
   createdAt: string;
+  isSpecialRequest?: boolean;
 }
 
 export default function SocialMediaTab() {
@@ -35,6 +37,25 @@ export default function SocialMediaTab() {
   // Daily Briefing state
   const [briefingData, setBriefingData] = useState<any>(null);
   const [showManualOverride, setShowManualOverride] = useState(false);
+
+  // Brand Settings Modal state
+  const [showBrandSettings, setShowBrandSettings] = useState(false);
+  const [brandTone, setBrandTone] = useState('warm');
+  const [showPrices, setShowPrices] = useState(true);
+  const [targetAudience, setTargetAudience] = useState('');
+  const [visualStyle, setVisualStyle] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  // Special Request Modal state
+  const [showSpecialModal, setShowSpecialModal] = useState(false);
+  const [specialBrief, setSpecialBrief] = useState('');
+  const [specialImages, setSpecialImages] = useState<Array<{ data: string; mimeType: string; preview: string }>>([]);
+  const [generatingSpecial, setGeneratingSpecial] = useState(false);
+
+  // Regenerate Modal state
+  const [regenPostId, setRegenPostId] = useState<string | null>(null);
+  const [regenReason, setRegenReason] = useState('');
+  const [regenerating, setRegenerating] = useState(false);
 
   // Generation Modal state
   const [selectedPillar, setSelectedPillar] = useState<'wellness' | 'education' | 'pairs' | 'spotlight' | 'custom'>('wellness');
@@ -55,7 +76,6 @@ export default function SocialMediaTab() {
   }, []);
 
   const getApiUrl = (endpoint: string) => {
-    // Allows testing locally against Next.js dev server on 3000, or live psx.ng
     return `http://localhost:3000${endpoint}`;
   };
 
@@ -104,6 +124,41 @@ export default function SocialMediaTab() {
     }
   };
 
+  const handleSaveBrandSettings = async () => {
+    setSavingSettings(true);
+    try {
+      let res;
+      const body = JSON.stringify({
+        pharmacy_slug: slug,
+        brandContext: {
+          tone: brandTone,
+          showPrices,
+          audience: targetAudience,
+          visualStyle
+        }
+      });
+      try {
+        res = await fetch('http://localhost:3000/api/account', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body
+        });
+      } catch(e) {
+        res = await fetch('https://www.psx.ng/api/account', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body
+        });
+      }
+      setShowBrandSettings(false);
+      fetchData(slug); // Refresh briefing with new brand context
+    } catch(err: any) {
+      alert('Failed to save settings: ' + err.message);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const handleGenerate = async () => {
     setGenerating(true);
     try {
@@ -136,7 +191,7 @@ export default function SocialMediaTab() {
       try {
         data = JSON.parse(text);
       } catch (e) {
-        throw new Error('API server is still compiling or building. Please check your local Next.js server on http://localhost:3000.');
+        throw new Error('API server is compiling. Please try again in a moment.');
       }
 
       if (data.success) {
@@ -149,12 +204,100 @@ export default function SocialMediaTab() {
         setPosts(prev => [data.post, ...prev]);
         setActiveSlide(0);
       } else {
-        alert(data.error || 'Failed to generate content. Please check your token balance.');
+        alert(data.error || 'Failed to generate content.');
       }
     } catch (err: any) {
       alert('Generation error: ' + err.message);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).slice(0, 3 - specialImages.length);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const base64 = dataUrl.split(',')[1];
+        setSpecialImages(prev => [...prev, { data: base64, mimeType: file.type, preview: dataUrl }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleGenerateSpecial = async () => {
+    if (!specialBrief.trim()) return;
+    setGeneratingSpecial(true);
+    try {
+      let res;
+      const payload = {
+        pharmacy_slug: slug,
+        customPrompt: specialBrief.trim(),
+        attachments: specialImages.map(img => ({ data: img.data, mimeType: img.mimeType }))
+      };
+
+      try {
+        res = await fetch('http://localhost:3000/api/social/generate-special-post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch(e) {
+        res = await fetch('https://www.psx.ng/api/social/generate-special-post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      }
+
+      const data = await res.json();
+      if (data.post || data.success) {
+        const newPost = data.post || data;
+        setActiveGeneratedPost(newPost);
+        setPosts(prev => [newPost, ...prev]);
+        setShowSpecialModal(false);
+        setSpecialBrief('');
+        setSpecialImages([]);
+      } else {
+        alert(data.message || 'Failed to generate custom post.');
+      }
+    } catch (err: any) {
+      alert('Error generating custom post: ' + err.message);
+    } finally {
+      setGeneratingSpecial(false);
+    }
+  };
+
+  const handleRegeneratePost = async () => {
+    if (!regenPostId || !regenReason.trim()) return;
+    setRegenerating(true);
+    try {
+      let res;
+      try {
+        res = await fetch('http://localhost:3000/api/social/regenerate-post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ postId: regenPostId, reason: regenReason })
+        });
+      } catch(e) {
+        res = await fetch('https://www.psx.ng/api/social/regenerate-post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ postId: regenPostId, reason: regenReason })
+        });
+      }
+      const data = await res.json();
+      if (data.post) {
+        setPosts(prev => prev.map(p => p.id === regenPostId ? data.post : p));
+        if (activeGeneratedPost?.id === regenPostId) setActiveGeneratedPost(data.post);
+        setRegenPostId(null);
+        setRegenReason('');
+      }
+    } catch(err: any) {
+      alert('Regeneration error: ' + err.message);
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -202,6 +345,13 @@ export default function SocialMediaTab() {
     }
   ];
 
+  const proFeatures = [
+    { icon: '🎥', title: 'Video Reels', desc: 'Auto-scripted 15s Instagram Reels with voiceover notes.' },
+    { icon: '🎠', title: 'Multi-Slide Carousels', desc: '5-slide educational series formatted for Instagram.' },
+    { icon: '⚡', title: 'Auto-Publishing', desc: 'Direct scheduling & auto-posting to Meta Graph API.' },
+    { icon: '📊', title: 'Reach & ROI Analytics', desc: 'Track sales conversions directly from posted links.' }
+  ];
+
   return (
     <div className="w-full max-w-5xl mx-auto p-6 space-y-8 text-slate-100 pb-24">
       {/* Header Banner */}
@@ -214,35 +364,25 @@ export default function SocialMediaTab() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">{businessName} Content Hub</h1>
           <p className="text-sm text-slate-400">
-            Manage your live storefront subdomain and generate high-converting social media content.
+            Manage your brand voice, store photos, and generate high-converting social media posts.
           </p>
         </div>
 
-        {/* Live Subdomain Pill */}
-        <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/80 border border-slate-800/80 backdrop-blur-md">
-          <Globe className="w-5 h-5 text-emerald-400" />
-          <div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Live Subdomain</p>
-            <p className="text-sm font-mono text-emerald-300 font-bold">{slug}.psx.ng</p>
-          </div>
-          <div className="flex items-center gap-1.5 ml-2">
-            <button
-              onClick={() => copyToClipboard(`https://${slug}.psx.ng`, 'subdomain')}
-              className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 transition-colors"
-              title="Copy Storefront URL"
-            >
-              {copiedId === 'subdomain' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-            </button>
-            <a
-              href={`https://${slug}.psx.ng`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
-              title="Visit Live Storefront"
-            >
-              <ExternalLink className="w-4 h-4" />
-            </a>
-          </div>
+        {/* Brand Settings & Subdomain Controls */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowBrandSettings(true)}
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 border border-slate-700 transition"
+          >
+            <Settings className="w-4 h-4 text-emerald-400" /> Brand Tone & Rules
+          </button>
+
+          <button
+            onClick={() => setShowSpecialModal(true)}
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition"
+          >
+            <Megaphone className="w-4 h-4" /> Custom Brief + Photos
+          </button>
         </div>
       </div>
 
@@ -271,8 +411,8 @@ export default function SocialMediaTab() {
 
         <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-400">Inventory Synced</p>
-            <p className="text-sm font-semibold text-white mt-1">Live Sync Active</p>
+            <p className="text-xs font-medium text-slate-400">Live Storefront</p>
+            <p className="text-sm font-semibold text-emerald-300 mt-1 font-mono">{slug}.psx.ng</p>
           </div>
           <button
             onClick={() => fetchData(slug)}
@@ -311,7 +451,7 @@ export default function SocialMediaTab() {
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 block">🔥 Inventory Insight</span>
                     <ul className="text-xs text-slate-300 space-y-1">
                       {briefingData.recommendedProducts.map((p: any) => (
-                        <li key={p._id} className="flex items-center gap-2">
+                        <li key={p._id || p.itemName} className="flex items-center gap-2">
                           <Check className="w-3 h-3 text-emerald-400" /> {p.itemName} (High Stock)
                         </li>
                       ))}
@@ -469,19 +609,50 @@ export default function SocialMediaTab() {
                   {copiedId === 'active-caption' ? 'Copied Caption!' : 'Copy Caption'}
                 </button>
 
+                <button
+                  onClick={() => setRegenPostId(activeGeneratedPost.id)}
+                  className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs flex items-center justify-center gap-2 transition"
+                  title="Regenerate with custom feedback"
+                >
+                  <RefreshCw className="w-4 h-4" /> Regenerate
+                </button>
+
                 <a
                   href={activeGeneratedPost.imageUrls[activeSlide] || activeGeneratedPost.imageUrls[0]}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center gap-2 transition"
                 >
-                  <Download className="w-4 h-4" /> Download Image
+                  <Download className="w-4 h-4" /> Download
                 </a>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* Pro Features Grid */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <Lock className="w-4 h-4 text-amber-400" /> Pro Automation Features
+          </h3>
+          <span className="text-xs text-amber-400 font-semibold">Available in Synkk Pro</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          {proFeatures.map((f, i) => (
+            <div key={i} className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/80 space-y-2 relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <span className="text-2xl">{f.icon}</span>
+                <Lock className="w-3.5 h-3.5 text-slate-600" />
+              </div>
+              <h4 className="font-bold text-xs text-white">{f.title}</h4>
+              <p className="text-[11px] text-slate-400 leading-relaxed">{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* History Grid */}
       <div className="space-y-4">
@@ -491,7 +662,7 @@ export default function SocialMediaTab() {
 
         {posts.length === 0 ? (
           <div className="p-8 rounded-xl bg-slate-900/40 border border-slate-800 text-center text-sm text-slate-400">
-            No posts generated yet. Pick a pillar above to generate your first AI post!
+            No posts generated yet. Generate your first post using the Briefing above!
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -509,18 +680,245 @@ export default function SocialMediaTab() {
                   <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">{post.caption}</p>
                 </div>
 
-                <button
-                  onClick={() => copyToClipboard(`${post.caption}\n\n${post.hashtags?.join(' ') || ''}`, post.id)}
-                  className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium flex items-center justify-center gap-1.5 transition"
-                >
-                  {copiedId === post.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedId === post.id ? 'Copied!' : 'Copy Caption'}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => copyToClipboard(`${post.caption}\n\n${post.hashtags?.join(' ') || ''}`, post.id)}
+                    className="flex-1 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium flex items-center justify-center gap-1.5 transition"
+                  >
+                    {copiedId === post.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedId === post.id ? 'Copied!' : 'Copy'}
+                  </button>
+
+                  <button
+                    onClick={() => setRegenPostId(post.id)}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                    title="Regenerate post"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Brand Settings Modal */}
+      {showBrandSettings && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-6 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <h3 className="font-bold text-white text-base flex items-center gap-2">
+                <Settings className="w-5 h-5 text-emerald-400" /> Brand Identity Settings
+              </h3>
+              <button onClick={() => setShowBrandSettings(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-2">Preferred Brand Tone</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'warm', label: 'Warm & Friendly' },
+                    { id: 'professional', label: 'Clinical & Pro' },
+                    { id: 'bold', label: 'Bold & Energetic' }
+                  ].map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => setBrandTone(t.id)}
+                      className={`p-2.5 rounded-xl border text-xs font-medium transition ${
+                        brandTone === t.id
+                          ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-2">Show Prices on Graphics?</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setShowPrices(true)}
+                    className={`p-2.5 rounded-xl border text-xs font-medium transition ${
+                      showPrices ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300' : 'bg-slate-950 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    Yes, include pricing
+                  </button>
+                  <button
+                    onClick={() => setShowPrices(false)}
+                    className={`p-2.5 rounded-xl border text-xs font-medium transition ${
+                      !showPrices ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300' : 'bg-slate-950 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    No, keep general
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Target Audience</label>
+                <input
+                  type="text"
+                  value={targetAudience}
+                  onChange={(e) => setTargetAudience(e.target.value)}
+                  placeholder="e.g. Young mothers & busy corporate workers"
+                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Visual Style Preference</label>
+                <input
+                  type="text"
+                  value={visualStyle}
+                  onChange={(e) => setVisualStyle(e.target.value)}
+                  placeholder="e.g. Minimalist flat-lay photography, deep green aesthetics"
+                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowBrandSettings(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveBrandSettings}
+                disabled={savingSettings}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2"
+              >
+                {savingSettings ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                Save Brand Rules
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Special Request / Custom Brief Modal */}
+      {showSpecialModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-6 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <h3 className="font-bold text-white text-base flex items-center gap-2">
+                <Megaphone className="w-5 h-5 text-emerald-400" /> Custom Post Brief & Photos
+              </h3>
+              <button onClick={() => setShowSpecialModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">What is this custom post about?</label>
+                <textarea
+                  value={specialBrief}
+                  onChange={(e) => setSpecialBrief(e.target.value)}
+                  placeholder="e.g. Announcing our new 24/7 night delivery service in Ikeja! Highlight quick delivery times and emergency medications."
+                  className="w-full h-24 p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Attach Reference Photos (Up to 3)</label>
+                <p className="text-[11px] text-slate-500 mb-2">Upload real pharmacy photos to include in the visual generation.</p>
+                
+                <div className="grid grid-cols-4 gap-3">
+                  {specialImages.map((img, i) => (
+                    <div key={i} className="aspect-square rounded-xl overflow-hidden bg-slate-950 border border-slate-800 relative group">
+                      <img src={img.preview} alt="Upload preview" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => setSpecialImages(prev => prev.filter((_, idx) => idx !== i))}
+                        className="absolute top-1 right-1 p-1 rounded-full bg-red-600 text-white opacity-0 group-hover:opacity-100 transition"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {specialImages.length < 3 && (
+                    <label className="aspect-square rounded-xl border border-dashed border-slate-800 hover:border-emerald-500/50 bg-slate-950/50 flex flex-col items-center justify-center cursor-pointer transition">
+                      <Upload className="w-5 h-5 text-slate-500 mb-1" />
+                      <span className="text-[10px] text-slate-400">Add Photo</span>
+                      <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                    </label>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowSpecialModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGenerateSpecial}
+                disabled={generatingSpecial || !specialBrief.trim()}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
+              >
+                {generatingSpecial ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                Generate Custom Post
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regeneration Modal */}
+      {regenPostId && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-6 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <h3 className="font-bold text-white text-base flex items-center gap-2">
+                <RefreshCw className="w-5 h-5 text-emerald-400" /> Regenerate Post
+              </h3>
+              <button onClick={() => setRegenPostId(null)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs font-semibold text-slate-300 block">Why regenerate? Give feedback to the AI:</label>
+              <textarea
+                value={regenReason}
+                onChange={(e) => setRegenReason(e.target.value)}
+                placeholder="e.g. Make the caption punchier and shorter, and focus the image on skincare instead of pills."
+                className="w-full h-24 p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setRegenPostId(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRegeneratePost}
+                disabled={regenerating || !regenReason.trim()}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
+              >
+                {regenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Regenerate Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
