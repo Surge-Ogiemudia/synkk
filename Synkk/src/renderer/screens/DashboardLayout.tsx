@@ -16,6 +16,7 @@ export default function DashboardLayout() {
     staff: false,
     emr: false,
     synkk: true,
+    socialAi: true,
   });
   const [pharmacyName, setPharmacyName] = useState('PharmaStackX');
   const [staffName, setStaffName] = useState('Pro Terminal');
@@ -74,7 +75,7 @@ export default function DashboardLayout() {
 
   const allNavItems = [
     { name: 'PSX Web', path: '/dashboard', icon: Globe, show: modules.psxWeb !== false },
-    { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, show: true },
+    { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, show: modules.socialAi !== false },
     { name: 'POS Register', path: '/dashboard/pos', icon: ShoppingCart, show: modules.pos },
     { name: 'Synkk Engine', path: '/dashboard/synkk', icon: Settings, show: modules.synkk },
     { name: 'EMR Terminal', path: '/dashboard/emr', icon: Database, show: modules.emr },
@@ -196,6 +197,7 @@ export default function DashboardLayout() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {Object.entries({
                   psxWeb: 'PSX Web',
+                  socialAi: 'Subdomain & Social AI',
                   pos: 'Point of Sale',
                   dispensary: 'Dispensary',
                   orders: 'Online Orders & Leads',

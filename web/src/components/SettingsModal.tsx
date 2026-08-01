@@ -10,6 +10,7 @@ const MODULE_LABELS: { key: keyof TerminalModules; label: string }[] = [
   { key: 'orders', label: 'Online Orders & Leads' },
   { key: 'source', label: 'Source' },
   { key: 'staff', label: 'Staff Management' },
+  { key: 'socialAi', label: 'Subdomain & Social AI' },
 ];
 
 export default function SettingsModal({

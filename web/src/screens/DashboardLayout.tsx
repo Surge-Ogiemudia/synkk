@@ -27,7 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Online Orders & Leads', path: '/dashboard/orders', icon: Box, moduleKey: 'orders' },
   { name: 'Source', path: '/dashboard/source', icon: Search, moduleKey: 'source' },
   { name: 'Staff Management', path: '/dashboard/staff', icon: Users, moduleKey: 'staff' },
-  { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, moduleKey: 'psxWeb' },
+  { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, moduleKey: 'socialAi' },
 ];
 
 export default function DashboardLayout() {
