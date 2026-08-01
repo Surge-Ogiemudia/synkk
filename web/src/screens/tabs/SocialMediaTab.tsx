@@ -31,6 +31,10 @@ export default function SocialMediaTab() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  
+  // Daily Briefing state
+  const [briefingData, setBriefingData] = useState<any>(null);
+  const [showManualOverride, setShowManualOverride] = useState(false);
 
   // Generation Modal state
   const [selectedPillar, setSelectedPillar] = useState<'wellness' | 'education' | 'pairs' | 'spotlight' | 'custom'>('wellness');
@@ -74,6 +78,25 @@ export default function SocialMediaTab() {
         setTokenInfo(data.socialTokens);
         setPosts(data.posts || []);
       }
+
+      // Fetch Briefing
+      let briefRes;
+      try {
+        briefRes = await fetch(`http://localhost:3000/api/social/briefing?pharmacy_slug=${pharmacySlug}`);
+        if (!briefRes.ok) throw new Error('Local server not found');
+      } catch (e) {
+        briefRes = await fetch(`https://www.psx.ng/api/social/briefing?pharmacy_slug=${pharmacySlug}`);
+      }
+      const briefText = await briefRes.text();
+      try {
+        const briefData = JSON.parse(briefText);
+        if (briefData.success) {
+          setBriefingData(briefData);
+          if (briefData.recommendedPillar) {
+            setSelectedPillar(briefData.recommendedPillar);
+          }
+        }
+      } catch(e) {}
     } catch (err) {
       console.error('Failed to fetch social posts:', err);
     } finally {
@@ -261,62 +284,73 @@ export default function SocialMediaTab() {
         </div>
       </div>
 
-      {/* Generator Section */}
-      <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-6">
+      {/* Daily Briefing Section */}
+      <div className="p-6 rounded-2xl bg-gradient-to-br from-slate-900 to-emerald-950/20 border border-emerald-500/30 space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-amber-400" /> Create AI Social Media Post
+              <Sparkles className="w-5 h-5 text-amber-400" /> Today's Briefing
             </h2>
-            <p className="text-xs text-slate-400">Choose a strategic content pillar to auto-generate post copy & AI graphics.</p>
+            <p className="text-xs text-slate-400 mt-1">Your AI teammate has analyzed your inventory, calendar, and past posts.</p>
           </div>
+          <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full text-[10px] font-bold uppercase tracking-wider border border-emerald-500/40">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long' })} Strategy
+          </span>
         </div>
 
-        {/* Pillar Selector Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {pillarsList.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setSelectedPillar(p.id as any)}
-              className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between gap-3 ${
-                selectedPillar === p.id
-                  ? 'bg-emerald-950/40 border-emerald-500/80 shadow-lg shadow-emerald-500/10'
-                  : 'bg-slate-950/50 border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="font-semibold text-sm text-white">{p.title}</span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                    selectedPillar === p.id ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-800 text-slate-400 border-slate-700'
-                  }`}>
-                    {p.badge}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 leading-relaxed">{p.desc}</p>
+        {briefingData ? (
+          <div className="p-5 rounded-xl bg-slate-950/50 border border-slate-800/80 shadow-inner">
+            <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
+              {briefingData.briefing}
+            </p>
+            
+            {(briefingData.recommendedProducts?.length > 0 || briefingData.upcomingEvents?.length > 0) && (
+              <div className="mt-4 pt-4 border-t border-slate-800/50 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {briefingData.recommendedProducts?.length > 0 && (
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 block">🔥 Inventory Insight</span>
+                    <ul className="text-xs text-slate-300 space-y-1">
+                      {briefingData.recommendedProducts.map((p: any) => (
+                        <li key={p._id} className="flex items-center gap-2">
+                          <Check className="w-3 h-3 text-emerald-400" /> {p.itemName} (High Stock)
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {briefingData.upcomingEvents?.length > 0 && (
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 block">🗓️ Upcoming Health Dates</span>
+                    <ul className="text-xs text-amber-200/80 space-y-1">
+                      {briefingData.upcomingEvents.map((e: any) => (
+                        <li key={e.name} className="flex items-center gap-2">
+                          <Calendar className="w-3 h-3" /> {e.name}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
-            </button>
-          ))}
-        </div>
-
-        {/* Custom Prompt Input if pillar === custom */}
-        {selectedPillar === 'custom' && (
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-300">Custom Announcement Details</label>
-            <textarea
-              value={customPrompt}
-              onChange={(e) => setCustomPrompt(e.target.value)}
-              placeholder="e.g. We will be offering free blood pressure checks this Friday from 9 AM to 4 PM!"
-              className="w-full h-24 p-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-            />
+            )}
+          </div>
+        ) : (
+          <div className="p-6 flex justify-center items-center">
+            <RefreshCw className="w-5 h-5 text-emerald-500 animate-spin" />
+            <span className="ml-3 text-sm text-slate-400">Analyzing inventory and planning strategy...</span>
           </div>
         )}
 
-        {/* Generate Button */}
-        <div className="flex justify-end">
+        {/* Generate Button (Briefing) */}
+        <div className="flex justify-between items-center pt-2">
+          <button 
+            onClick={() => setShowManualOverride(!showManualOverride)}
+            className="text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            {showManualOverride ? "Hide Manual Override" : "Want to post something else? (Manual Override)"}
+          </button>
           <button
             onClick={handleGenerate}
-            disabled={generating || tokenInfo.totalAvailable <= 0}
+            disabled={generating || tokenInfo.totalAvailable <= 0 || !briefingData}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 disabled:opacity-50 text-white font-semibold text-sm shadow-lg shadow-emerald-500/20 flex items-center gap-2 transition-all cursor-pointer"
           >
             {generating ? (
@@ -325,12 +359,60 @@ export default function SocialMediaTab() {
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4" /> Generate Post ({selectedPillar === 'education' ? '3 Tokens' : '1 Token'})
+                <Sparkles className="w-4 h-4" /> Generate Recommended Post
               </>
             )}
           </button>
         </div>
       </div>
+
+      {/* Manual Override Section */}
+      {showManualOverride && (
+        <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-6">
+          <div>
+            <h3 className="text-sm font-bold text-slate-300">Manual Pillar Selection</h3>
+            <p className="text-xs text-slate-500">Override the AI's daily recommendation and force a specific post type.</p>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {pillarsList.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedPillar(p.id as any)}
+                className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between gap-3 ${
+                  selectedPillar === p.id
+                    ? 'bg-emerald-950/40 border-emerald-500/80 shadow-lg shadow-emerald-500/10'
+                    : 'bg-slate-950/50 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-semibold text-sm text-white">{p.title}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      selectedPillar === p.id ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}>
+                      {p.badge}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">{p.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {selectedPillar === 'custom' && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300">Custom Announcement Details</label>
+              <textarea
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                placeholder="e.g. We will be offering free blood pressure checks this Friday from 9 AM to 4 PM!"
+                className="w-full h-24 p-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Active Generated Post Preview Banner */}
       {activeGeneratedPost && (
