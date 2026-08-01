@@ -58,8 +58,11 @@ export default function SocialMediaTab() {
   const fetchData = async (pharmacySlug: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`https://www.pharmastackx.com/api/social/posts?slug=${pharmacySlug}`);
-      const data = await res.json();
+      const res = await fetch(`https://www.psx.ng/api/social/posts?slug=${pharmacySlug}`);
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch(e) {}
+
       if (data.success) {
         setTokenInfo(data.socialTokens);
         setPosts(data.posts || []);
@@ -74,7 +77,7 @@ export default function SocialMediaTab() {
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      const res = await fetch('https://www.pharmastackx.com/api/social/generate', {
+      const res = await fetch('https://www.psx.ng/api/social/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -84,7 +87,14 @@ export default function SocialMediaTab() {
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error('Server returned an invalid response. Please try again in a moment.');
+      }
+
       if (data.success) {
         setActiveGeneratedPost(data.post);
         setTokenInfo({
