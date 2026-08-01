@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Globe, ShoppingCart, Activity, Settings, Box, Search, Users, Database } from 'lucide-react';
+import { LayoutDashboard, Globe, ShoppingCart, Activity, Settings, Box, Search, Users, Database, Sparkles } from 'lucide-react';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -74,6 +74,7 @@ export default function DashboardLayout() {
 
   const allNavItems = [
     { name: 'PSX Web', path: '/dashboard', icon: Globe, show: modules.psxWeb !== false },
+    { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, show: true },
     { name: 'POS Register', path: '/dashboard/pos', icon: ShoppingCart, show: modules.pos },
     { name: 'Synkk Engine', path: '/dashboard/synkk', icon: Settings, show: modules.synkk },
     { name: 'EMR Terminal', path: '/dashboard/emr', icon: Database, show: modules.emr },
