@@ -22,6 +22,7 @@ import OrdersAndLeadsTab from './renderer/screens/OrdersAndLeadsTab';
 import SourceTab from './renderer/screens/SourceTab';
 import StaffTab from './renderer/screens/StaffTab';
 import EmrTab from './renderer/screens/EmrTab';
+import SocialMediaTab from './renderer/screens/SocialMediaTab';
 
 
 function App() {
@@ -177,6 +178,7 @@ function AppRoutes() {
           
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<GeneralDashboardTab />} />
+            <Route path="social" element={<SocialMediaTab />} />
             <Route path="pos" element={<PosTab />} />
             <Route path="dispensary" element={<DispensaryTab />} />
             <Route path="orders" element={<div className="w-full max-w-4xl mx-auto p-4 h-full"><OrdersAndLeadsTab slug="main" /></div>} />
