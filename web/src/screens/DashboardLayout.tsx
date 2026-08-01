@@ -128,7 +128,7 @@ export default function DashboardLayout() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 relative overflow-hidden bg-[#050505]">
+      <div className="flex-1 relative overflow-x-hidden overflow-y-auto custom-scroll bg-[#050505]">
         <Outlet />
       </div>
 
