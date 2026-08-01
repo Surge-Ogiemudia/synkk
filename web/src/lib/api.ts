@@ -58,6 +58,7 @@ export interface TerminalModules {
   orders?: boolean;
   source?: boolean;
   staff?: boolean;
+  socialAi?: boolean;
 }
 
 export async function getTerminalModules(): Promise<TerminalModules> {
