@@ -4,6 +4,7 @@ import {
   Leaf, BookOpen, Layers, Target, Edit3, Image as ImageIcon,
   Check, ArrowRight, Download, Calendar, Layers3
 } from 'lucide-react';
+import { auth } from '@/lib/auth';
 
 interface SocialPostItem {
   id: string;
@@ -39,18 +40,12 @@ export default function SocialMediaTab() {
 
   useEffect(() => {
     // Fetch stored pharmacy slug
-    try {
-      const { ipcRenderer } = window.require('electron');
-      ipcRenderer.invoke('get-storefront-data').then((data: any) => {
-        if (data && data.slug) {
-          setSlug(data.slug);
-          if (data.name) setBusinessName(data.name);
-          fetchData(data.slug);
-        } else {
-          fetchData('medlife');
-        }
-      });
-    } catch (e) {
+    const profile = auth.getProfile();
+    if (profile?.slug) {
+      setSlug(profile.slug);
+      if (profile.businessName) setBusinessName(profile.businessName);
+      fetchData(profile.slug);
+    } else {
       fetchData('medlife');
     }
   }, []);
