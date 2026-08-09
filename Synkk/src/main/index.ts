@@ -103,7 +103,7 @@ function createWindow() {
           
           mainWindow!.setAlwaysOnTop(false);
           mainWindow!.setMenuBarVisibility(true);
-          const route = (global as any).targetRoute || '/dashboard/dispensary';
+          const route = (global as any).targetRoute || (global as any).lastDashboardRoute || '/dashboard/dispensary';
           mainWindow!.webContents.send('navigate-to', { path: route });
           (global as any).targetRoute = null;
           
