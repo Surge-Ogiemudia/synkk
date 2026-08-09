@@ -154,8 +154,7 @@ export default function DashboardLayout() {
               try {
                 // @ts-ignore
                 const { ipcRenderer } = window.require('electron');
-                await ipcRenderer.invoke('save-storefront-data', { slug: '', name: '', coordinates: null });
-                await ipcRenderer.invoke('save-psx-credentials', { email: '', password: '' });
+                await ipcRenderer.invoke('logout-completely');
               } catch (e) {
                 console.error('Failed to clear session:', e);
               }
