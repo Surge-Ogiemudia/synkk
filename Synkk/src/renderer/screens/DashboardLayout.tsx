@@ -119,13 +119,7 @@ export default function DashboardLayout() {
             return (
               <button
                 key={item.path}
-                onClick={() => {
-                  if (!navigator.onLine && !isActive) {
-                    alert("You are currently offline. Please connect to the internet to access this tab.");
-                    return;
-                  }
-                  navigate(item.path);
-                }}
+                onClick={() => navigate(item.path)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
                   isActive 
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-inner' 
