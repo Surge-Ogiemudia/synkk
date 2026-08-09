@@ -147,7 +147,7 @@ function AppRoutes() {
   const location = useLocation();
 
   React.useEffect(() => {
-    if (location.pathname.startsWith('/dashboard')) {
+    if (location.pathname !== '/mini-widget') {
       // @ts-ignore
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('route-changed', location.pathname);

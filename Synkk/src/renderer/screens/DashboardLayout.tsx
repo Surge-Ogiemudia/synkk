@@ -48,11 +48,13 @@ export default function DashboardLayout() {
     });
 
     ipcRenderer.invoke('get-storefront-data').then((data: any) => {
-      if (data) {
+      if (data && data.slug) {
         if (data.name) setPharmacyName(data.name);
         if (data.staffName) setStaffName(data.staffName);
         if (data.role) setStaffRole(data.role);
         if (data.phone) setStaffPhone(data.phone);
+      } else {
+        navigate('/');
       }
     });
   }, []);
