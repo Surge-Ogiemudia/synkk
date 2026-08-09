@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Globe, ShoppingCart, Activity, Settings, Box, Search, Users, Database, Sparkles } from 'lucide-react';
+import PosTab from './PosTab';
+import DispensaryTab from './DispensaryTab';
+import EmrTab from './EmrTab';
 
 export default function DashboardLayout() {
   const navigate = useNavigate();
@@ -178,8 +181,21 @@ export default function DashboardLayout() {
         <div className="blob bg-emerald-500/10 w-[600px] h-[600px] top-[-10%] left-[-10%] fixed pointer-events-none"></div>
         <div className="blob bg-cyan-500/10 w-[500px] h-[500px] bottom-[-20%] right-[-10%] fixed pointer-events-none" style={{ animationDelay: '2s' }}></div>
         
-        <div className="relative z-10 w-full h-full">
-          <Outlet />
+        <div className="relative z-10 w-full h-full flex flex-col">
+          {/* Webview routes are persisted in the background */}
+          <div className={location.pathname === '/dashboard/pos' ? 'block flex-1' : 'hidden'}>
+            <PosTab />
+          </div>
+          <div className={location.pathname === '/dashboard/dispensary' ? 'block flex-1' : 'hidden'}>
+            <DispensaryTab />
+          </div>
+          <div className={location.pathname === '/dashboard/emr' ? 'block flex-1' : 'hidden'}>
+            <EmrTab />
+          </div>
+          
+          <div className={['/dashboard/pos', '/dashboard/dispensary', '/dashboard/emr'].includes(location.pathname) ? 'hidden' : 'block flex-1'}>
+            <Outlet />
+          </div>
         </div>
       </div>
 

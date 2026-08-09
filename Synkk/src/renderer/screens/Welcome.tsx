@@ -90,6 +90,11 @@ export default function Welcome() {
     setAuthLoading(true);
     setAuthError('');
     try {
+      if (!navigator.onLine) {
+        setAuthState('login');
+        return;
+      }
+      
       const isEmail = email.includes('@');
       const res = await fetch('https://www.psx.ng/api/auth/check', {
         method: 'POST',
@@ -118,6 +123,35 @@ export default function Welcome() {
     setAuthLoading(true);
     setAuthError('');
     try {
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      
+      if (!navigator.onLine) {
+        const localCreds = await ipcRenderer.invoke('get-psx-credentials');
+        if (localCreds && localCreds.email.toLowerCase() === email.toLowerCase() && localCreds.password === password) {
+          const existingStorefront = await ipcRenderer.invoke('get-storefront-data');
+          if (!existingStorefront || !existingStorefront.slug) {
+            throw new Error("No offline profile found. Please connect to the internet to log in first.");
+          }
+          
+          const backendModules = await ipcRenderer.invoke('get-app-modules') || {};
+          let targetPath = '/dashboard';
+          if (backendModules.psxWeb === false) {
+             if (backendModules.pos !== false) targetPath = '/dashboard/pos';
+             else if (backendModules.emr !== false) targetPath = '/dashboard/emr';
+             else if (backendModules.dispensary !== false) targetPath = '/dashboard/dispensary';
+             else if (backendModules.orders !== false) targetPath = '/dashboard/orders';
+             else if (backendModules.source !== false) targetPath = '/dashboard/source';
+             else if (backendModules.staff !== false) targetPath = '/dashboard/staff';
+             else if (backendModules.synkk !== false) targetPath = '/dashboard/synkk';
+          }
+          navigate(targetPath, { state: { slug: existingStorefront.slug, name: existingStorefront.name, coordinates: existingStorefront.coordinates } });
+          return;
+        } else {
+          throw new Error("Incorrect offline credentials or no local profile found.");
+        }
+      }
+
       const isEmail = email.includes('@');
       const res = await fetch('https://www.psx.ng/api/auth/login', {
         method: 'POST',
@@ -130,8 +164,6 @@ export default function Welcome() {
       });
       const data = await res.json();
       if (res.ok && data.token) {
-        // @ts-ignore
-        const { ipcRenderer } = window.require('electron');
         await ipcRenderer.invoke('set-session-cookie', { token: data.token });
         await ipcRenderer.invoke('save-storefront-data', { 
           slug: data.user.slug || 'local', 

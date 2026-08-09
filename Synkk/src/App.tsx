@@ -179,12 +179,12 @@ function AppRoutes() {
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<GeneralDashboardTab />} />
             <Route path="social" element={<SocialMediaTab />} />
-            <Route path="pos" element={<PosTab />} />
-            <Route path="dispensary" element={<DispensaryTab />} />
+            <Route path="pos" element={<div />} />
+            <Route path="dispensary" element={<div />} />
             <Route path="orders" element={<div className="w-full max-w-4xl mx-auto p-4 h-full"><OrdersAndLeadsTab slug="main" /></div>} />
             <Route path="source" element={<div className="w-full max-w-4xl mx-auto p-8"><SourceTab slug="main" /></div>} />
             <Route path="staff" element={<StaffTab />} />
-            <Route path="emr" element={<EmrTab />} />
+            <Route path="emr" element={<div />} />
             
             {/* Synkk Engine — entire setup flow lives here */}
             <Route path="synkk" element={<div className="w-full max-w-4xl mx-auto p-8"><SynkkEngineTab /></div>} />
