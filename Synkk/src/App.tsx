@@ -140,10 +140,19 @@ function AppContent() {
   return <AppRoutes />;
 }
 
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 function AppRoutes() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  React.useEffect(() => {
+    if (location.pathname.startsWith('/dashboard')) {
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      ipcRenderer.send('route-changed', location.pathname);
+    }
+  }, [location.pathname]);
 
   React.useEffect(() => {
     const handleAppNavigate = (e: any) => {

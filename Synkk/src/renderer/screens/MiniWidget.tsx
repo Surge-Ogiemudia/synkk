@@ -85,7 +85,7 @@ export default function MiniWidget() {
   }, []);
 
   const handleMaximize = (tab?: string) => {
-    let targetRoute = '/dashboard/dispensary';
+    let targetRoute: string | undefined = undefined;
     if (tab === 'synkk') {
       targetRoute = '/dashboard/synkk';
     } else if (tab === 'leads') {

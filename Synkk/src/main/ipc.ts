@@ -12,6 +12,9 @@ import { processWatcher } from './process-watcher';
 import { triggerUpdateCheck } from './updater';
 
 export function setupIpc() {
+  ipcMain.on('route-changed', (event, route: string) => {
+    (global as any).lastDashboardRoute = route;
+  });
   ipcMain.handle('set-view-mode', (event, mode: 'mini' | 'full', targetRoute?: string) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
