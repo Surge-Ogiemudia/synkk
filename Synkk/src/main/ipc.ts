@@ -786,6 +786,13 @@ ipcMain.handle('update-csv-path', async (event) => {
       }
       const encEmail = safeStorage.encryptString(email).toString('base64');
       const encPass = safeStorage.encryptString(password).toString('base64');
+
+      const psxUsers = (getStore('psxUsers') as any) || {};
+      if (email) {
+        psxUsers[email.toLowerCase()] = { encEmail, encPass };
+        setStore('psxUsers', psxUsers);
+      }
+
       setStore('psxCredentials', { encEmail, encPass });
       return { success: true };
     } catch (error: any) {
@@ -793,10 +800,18 @@ ipcMain.handle('update-csv-path', async (event) => {
     }
   });
 
-  ipcMain.handle('get-psx-credentials', async () => {
+  ipcMain.handle('get-psx-credentials', async (event, requestedEmail?: string) => {
     try {
       if (!safeStorage.isEncryptionAvailable()) return null;
-      const creds = getStore('psxCredentials') as any;
+      
+      const psxUsers = (getStore('psxUsers') as any) || {};
+      let creds = null;
+      if (requestedEmail && psxUsers[requestedEmail.toLowerCase()]) {
+        creds = psxUsers[requestedEmail.toLowerCase()];
+      } else {
+        creds = getStore('psxCredentials') as any;
+      }
+
       if (!creds || !creds.encEmail || !creds.encPass) return null;
       
       const email = safeStorage.decryptString(Buffer.from(creds.encEmail, 'base64'));
@@ -1006,10 +1021,7 @@ ipcMain.handle('update-csv-path', async (event) => {
 
   ipcMain.handle('logout-completely', async () => {
     try {
-      // 1. Delete all credentials from the local database
-      setStore('webPosCredentials', null);
-      setStore('psxCredentials', null);
-      setStore('storefront', null);
+      // 1. Delete active pairing session (keep encrypted offline credentials & storefront metadata for offline authentication)
       setStore('pairing', null);
 
       // 2. Clear Electron's Session data (Cookies, Local Storage, IndexedDB).

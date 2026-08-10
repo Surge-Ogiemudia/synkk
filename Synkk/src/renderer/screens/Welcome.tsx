@@ -126,8 +126,8 @@ export default function Welcome() {
       // @ts-ignore
       const { ipcRenderer } = window.require('electron');
       
-      if (!navigator.onLine) {
-        const localCreds = await ipcRenderer.invoke('get-psx-credentials');
+      const tryOfflineLogin = async () => {
+        const localCreds = await ipcRenderer.invoke('get-psx-credentials', email);
         if (localCreds && localCreds.email.toLowerCase() === email.toLowerCase() && localCreds.password === password) {
           const existingStorefront = await ipcRenderer.invoke('get-storefront-data');
           if (!existingStorefront || !existingStorefront.slug) {
@@ -146,22 +146,38 @@ export default function Welcome() {
              else if (backendModules.synkk !== false) targetPath = '/dashboard/synkk';
           }
           navigate(targetPath, { state: { slug: existingStorefront.slug, name: existingStorefront.name, coordinates: existingStorefront.coordinates } });
-          return;
-        } else {
+          return true;
+        }
+        return false;
+      };
+
+      if (!navigator.onLine) {
+        const success = await tryOfflineLogin();
+        if (!success) {
           throw new Error("Incorrect offline credentials or no local profile found.");
         }
+        return;
       }
 
-      const isEmail = email.includes('@');
-      const res = await fetch('https://www.psx.ng/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email: isEmail ? email : undefined,
-          phoneNumber: !isEmail ? email : undefined,
-          password 
-        })
-      });
+      let res;
+      try {
+        const isEmail = email.includes('@');
+        res = await fetch('https://www.psx.ng/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            email: isEmail ? email : undefined,
+            phoneNumber: !isEmail ? email : undefined,
+            password 
+          })
+        });
+      } catch (fetchErr: any) {
+        // Network fetch failed (e.g. WiFi on but no internet connection). Attempt offline fallback.
+        const success = await tryOfflineLogin().catch(() => false);
+        if (success) return;
+        throw new Error(`Network error: ${fetchErr.message || 'Unable to connect'}`);
+      }
+
       const data = await res.json();
       if (res.ok && data.token) {
         await ipcRenderer.invoke('set-session-cookie', { token: data.token });
@@ -191,7 +207,7 @@ export default function Welcome() {
         setAuthError(data.error || 'Login failed.');
       }
     } catch (err: any) {
-      setAuthError(`Network error: ${err.message || 'Please try again'}`);
+      setAuthError(err.message || 'Please try again');
     } finally {
       setAuthLoading(false);
     }
