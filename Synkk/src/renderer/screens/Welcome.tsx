@@ -129,10 +129,9 @@ export default function Welcome() {
       const tryOfflineLogin = async () => {
         const localCreds = await ipcRenderer.invoke('get-psx-credentials', email);
         if (localCreds && localCreds.email.toLowerCase() === email.toLowerCase() && localCreds.password === password) {
-          const existingStorefront = await ipcRenderer.invoke('get-storefront-data');
-          if (!existingStorefront || !existingStorefront.slug) {
-            throw new Error("No offline profile found. Please connect to the internet to log in first.");
-          }
+          const activeStorefront = await ipcRenderer.invoke('get-storefront-data');
+          const storefrontToRestore = activeStorefront?.slug ? activeStorefront : (localCreds.storefront || { slug: 'local', name: 'My Pharmacy' });
+          await ipcRenderer.invoke('save-storefront-data', storefrontToRestore);
           
           const backendModules = await ipcRenderer.invoke('get-app-modules') || {};
           let targetPath = '/dashboard';
@@ -145,7 +144,7 @@ export default function Welcome() {
              else if (backendModules.staff !== false) targetPath = '/dashboard/staff';
              else if (backendModules.synkk !== false) targetPath = '/dashboard/synkk';
           }
-          navigate(targetPath, { state: { slug: existingStorefront.slug, name: existingStorefront.name, coordinates: existingStorefront.coordinates } });
+          navigate(targetPath, { state: { slug: storefrontToRestore.slug, name: storefrontToRestore.name, coordinates: storefrontToRestore.coordinates } });
           return true;
         }
         return false;
@@ -181,7 +180,7 @@ export default function Welcome() {
       const data = await res.json();
       if (res.ok && data.token) {
         await ipcRenderer.invoke('set-session-cookie', { token: data.token });
-        await ipcRenderer.invoke('save-storefront-data', { 
+        const storefrontData = { 
           slug: data.user.slug || 'local', 
           name: data.user.businessName || 'My Pharmacy', 
           staffName: data.user.name || data.user.email,
@@ -189,8 +188,9 @@ export default function Welcome() {
           phone: data.user.phoneNumber || '',
           coordinates: null, 
           isNewUser: false 
-        });
-        await ipcRenderer.invoke('save-psx-credentials', { email, password });
+        };
+        await ipcRenderer.invoke('save-storefront-data', storefrontData);
+        await ipcRenderer.invoke('save-psx-credentials', { email, password, storefront: storefrontData });
         const backendModules = await ipcRenderer.invoke('get-app-modules') || {};
         let targetPath = '/dashboard';
         if (backendModules.psxWeb === false) {
