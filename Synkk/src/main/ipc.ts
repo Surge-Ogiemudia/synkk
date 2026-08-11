@@ -1026,12 +1026,9 @@ ipcMain.handle('update-csv-path', async (event) => {
       setStore('storefront', null);
       setStore('pairing', null);
 
-      // 2. Clear Electron's Session data (Cookies, Local Storage, IndexedDB).
-      // Also clear 'persist:pos' now that set-session-cookie writes the SSO token
-      // there too — otherwise a stale session_token would keep POS/Staff logged
-      // in after the rest of the app has logged out.
-      await session.defaultSession.clearStorageData();
-      await session.fromPartition('persist:pos').clearStorageData();
+      // 2. Clear active session cookies and storage tokens (preserve PWA service worker cache storage for offline availability)
+      await session.defaultSession.clearStorageData({ storages: ['cookies', 'localstorage'] });
+      await session.fromPartition('persist:pos').clearStorageData({ storages: ['cookies', 'localstorage'] });
 
       // 3. Stop the sync scheduler loop if running
       const { stopScheduler } = require('./sync');
