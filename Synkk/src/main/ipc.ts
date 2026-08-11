@@ -779,21 +779,22 @@ ipcMain.handle('update-csv-path', async (event) => {
   });
 
   // ── Secure Credential Storage (safeStorage) ─────────────────────────
-  ipcMain.handle('save-psx-credentials', async (event, { email, password }: { email: string; password: string }) => {
+  ipcMain.handle('save-psx-credentials', async (event, { email, password, storefront }: { email: string; password: string; storefront?: any }) => {
     try {
       if (!safeStorage.isEncryptionAvailable()) {
         return { success: false, error: 'OS-level encryption is not available on this machine.' };
       }
       const encEmail = safeStorage.encryptString(email).toString('base64');
       const encPass = safeStorage.encryptString(password).toString('base64');
+      const storedStorefront = storefront || getStore('storefront');
 
       const psxUsers = (getStore('psxUsers') as any) || {};
       if (email) {
-        psxUsers[email.toLowerCase()] = { encEmail, encPass };
+        psxUsers[email.toLowerCase()] = { encEmail, encPass, storefront: storedStorefront };
         setStore('psxUsers', psxUsers);
       }
 
-      setStore('psxCredentials', { encEmail, encPass });
+      setStore('psxCredentials', { encEmail, encPass, storefront: storedStorefront });
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -816,7 +817,7 @@ ipcMain.handle('update-csv-path', async (event) => {
       
       const email = safeStorage.decryptString(Buffer.from(creds.encEmail, 'base64'));
       const password = safeStorage.decryptString(Buffer.from(creds.encPass, 'base64'));
-      return { email, password };
+      return { email, password, storefront: creds.storefront };
     } catch (e) {
       return null;
     }
@@ -1021,7 +1022,8 @@ ipcMain.handle('update-csv-path', async (event) => {
 
   ipcMain.handle('logout-completely', async () => {
     try {
-      // 1. Delete active pairing session (keep encrypted offline credentials & storefront metadata for offline authentication)
+      // 1. Clear active storefront session profile & pairing (encrypted psxUsers remain intact for offline authentication)
+      setStore('storefront', null);
       setStore('pairing', null);
 
       // 2. Clear Electron's Session data (Cookies, Local Storage, IndexedDB).
