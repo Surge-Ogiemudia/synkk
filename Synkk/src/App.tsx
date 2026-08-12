@@ -1,13 +1,13 @@
 import React from 'react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import Welcome from './renderer/screens/Welcome';
+import WebScraper from './renderer/screens/WebScraper';
 import Analysis from './renderer/screens/Analysis';
 import Confirmation from './renderer/screens/Confirmation';
+import ManualOverride from './renderer/screens/ManualOverride';
 import StorefrontSetup from './renderer/screens/StorefrontSetup';
 import GuestAuth from './renderer/screens/GuestAuth';
 import Done from './renderer/screens/Done';
-import ManualOverride from './renderer/screens/ManualOverride';
-import WebScraper from './renderer/screens/WebScraper';
 import BubbleMode from './renderer/screens/BubbleMode';
 import SynkkEngineTab from './renderer/screens/SynkkEngineTab';
 
@@ -16,27 +16,28 @@ import GeneralDashboardTab from './renderer/screens/GeneralDashboardTab';
 import PosTab from './renderer/screens/PosTab';
 import DispensaryTab from './renderer/screens/DispensaryTab';
 import MiniWidget from './renderer/screens/MiniWidget';
-import OrdersTab from './renderer/screens/OrdersTab';
-import LeadsTab from './renderer/screens/LeadsTab';
 import OrdersAndLeadsTab from './renderer/screens/OrdersAndLeadsTab';
 import SourceTab from './renderer/screens/SourceTab';
 import StaffTab from './renderer/screens/StaffTab';
 import EmrTab from './renderer/screens/EmrTab';
 import SocialMediaTab from './renderer/screens/SocialMediaTab';
 
-
 function App() {
   React.useEffect(() => {
     const handleOnline = () => {
-      // @ts-ignore
-      const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('network-changed', 'online');
+      try {
+        // @ts-ignore
+        const { ipcRenderer } = window.require('electron');
+        ipcRenderer.send('network-changed', 'online');
+      } catch (e) {}
     };
     
     const handleOffline = () => {
-      // @ts-ignore
-      const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('network-changed', 'offline');
+      try {
+        // @ts-ignore
+        const { ipcRenderer } = window.require('electron');
+        ipcRenderer.send('network-changed', 'offline');
+      } catch (e) {}
     };
 
     window.addEventListener('online', handleOnline);
@@ -44,9 +45,11 @@ function App() {
 
     // Clear notifications on window focus
     const handleFocus = () => {
-      // @ts-ignore
-      const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('clear-notifications');
+      try {
+        // @ts-ignore
+        const { ipcRenderer } = window.require('electron');
+        ipcRenderer.send('clear-notifications');
+      } catch (e) {}
     };
     window.addEventListener('focus', handleFocus);
 
@@ -65,7 +68,6 @@ function App() {
       <MemoryRouter initialEntries={['/overlay']}>
         <div className="w-full h-screen overflow-hidden bg-transparent">
           <Routes>
-
           </Routes>
         </div>
       </MemoryRouter>
@@ -73,7 +75,6 @@ function App() {
   }
 
   if (isBubbleWidget) {
-    // Parse hint from hash URL if present
     const params = new URLSearchParams(window.location.hash.split('?')[1]);
     const posNameHint = params.get('hint') || '';
     
@@ -82,24 +83,32 @@ function App() {
         <BubbleMode
           posNameHint={posNameHint}
           onConfirmed={(items, posName) => {
-            // @ts-ignore
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('bubble-completed', { items, posName });
+            try {
+              // @ts-ignore
+              const { ipcRenderer } = window.require('electron');
+              ipcRenderer.send('bubble-completed', { items, posName });
+            } catch (e) {}
           }}
           onCancel={() => {
-            // @ts-ignore
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('bubble-cancelled');
+            try {
+              // @ts-ignore
+              const { ipcRenderer } = window.require('electron');
+              ipcRenderer.send('bubble-cancelled');
+            } catch (e) {}
           }}
           onPivotToLocal={(dbPath) => {
-            // @ts-ignore
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('bubble-pivot-local', dbPath);
+            try {
+              // @ts-ignore
+              const { ipcRenderer } = window.require('electron');
+              ipcRenderer.send('bubble-pivot-local', dbPath);
+            } catch (e) {}
           }}
           onPivotToWeb={() => {
-            // @ts-ignore
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('bubble-pivot-web');
+            try {
+              // @ts-ignore
+              const { ipcRenderer } = window.require('electron');
+              ipcRenderer.send('bubble-pivot-web');
+            } catch (e) {}
           }}
         />
       </div>
@@ -113,44 +122,49 @@ function App() {
   );
 }
 
-// GlobalNavigator component intercepts IPC commands to navigate the react router
 function GlobalNavigator() {
   React.useEffect(() => {
-    // @ts-ignore
-    const { ipcRenderer } = window.require('electron');
-    
-    const handleNavigate = (_event: any, data: { path: string, state?: any }) => {
-      // Need to be inside a router context to use navigate. 
-      // We'll use a hacky way since this is inside MemoryRouter
-      const evt = new CustomEvent('app-navigate', { detail: data });
-      window.dispatchEvent(evt);
-    };
+    try {
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      
+      const handleNavigate = (_event: any, data: { path: string, state?: any }) => {
+        const evt = new CustomEvent('app-navigate', { detail: data });
+        window.dispatchEvent(evt);
+      };
 
-    ipcRenderer.on('navigate-to', handleNavigate);
-    return () => {
-      ipcRenderer.removeListener('navigate-to', handleNavigate);
-    };
+      ipcRenderer.on('navigate-to', handleNavigate);
+      return () => {
+        ipcRenderer.removeListener('navigate-to', handleNavigate);
+      };
+    } catch (e) {}
   }, []);
 
   return <AppContent />;
 }
 
-// Split out AppContent so it can use useNavigate
 function AppContent() {
   return <AppRoutes />;
 }
 
-import { useNavigate, useLocation } from 'react-router-dom';
-
 function AppRoutes() {
   const navigate = useNavigate();
   const location = useLocation();
+  const lastDashboardLocationRef = React.useRef(location);
+
+  const isMiniWidget = location.pathname === '/mini-widget';
+
+  if (!isMiniWidget && location.pathname.startsWith('/dashboard')) {
+    lastDashboardLocationRef.current = location;
+  }
 
   React.useEffect(() => {
     if (location.pathname !== '/mini-widget') {
-      // @ts-ignore
-      const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('route-changed', location.pathname);
+      try {
+        // @ts-ignore
+        const { ipcRenderer } = window.require('electron');
+        ipcRenderer.send('route-changed', location.pathname);
+      } catch (e) {}
     }
   }, [location.pathname]);
 
@@ -162,12 +176,14 @@ function AppRoutes() {
     return () => window.removeEventListener('app-navigate', handleAppNavigate);
   }, [navigate]);
 
+  const targetLocation = isMiniWidget ? lastDashboardLocationRef.current : location;
+
   return (
     <div className="relative w-full h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#050505] text-slate-100 font-sans custom-scroll">
-        {/* Animated Background Blobs are now in DashboardLayout for the dashboard routes, 
-            so we only show them here for non-dashboard routes if needed, but since AppRoutes wraps everything, 
-            we can conditionally render them or just leave them. We'll let the layout handle its own background. */}
-        <Routes>
+      {isMiniWidget && <MiniWidget />}
+
+      <div className={isMiniWidget ? 'hidden' : 'h-full w-full flex flex-col'}>
+        <Routes location={targetLocation}>
           <Route path="/" element={
             <>
               <div className="blob bg-emerald-500/20 w-[600px] h-[600px] top-[-10%] left-[-10%] fixed pointer-events-none"></div>
@@ -183,8 +199,7 @@ function AppRoutes() {
           <Route path="/override" element={<div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center"><ManualOverride /></div>} />
           <Route path="/setup" element={<div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center"><StorefrontSetup /></div>} />
           <Route path="/guest-auth" element={<div className="relative z-10 w-full max-w-4xl mx-auto px-8 pt-24 pb-32 flex flex-col items-center"><GuestAuth /></div>} />
-          <Route path="/mini-widget" element={<MiniWidget />} />
-          
+
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<GeneralDashboardTab />} />
             <Route path="social" element={<SocialMediaTab />} />
@@ -207,6 +222,7 @@ function AppRoutes() {
           </Route>
         </Routes>
       </div>
+    </div>
   );
 }
 

@@ -1,5 +1,15 @@
 import React, { useRef, useState, useEffect } from 'react';
-const { ipcRenderer } = window.require('electron');
+
+const getIpcRenderer = () => {
+  if (typeof window !== 'undefined' && (window as any).require) {
+    try {
+      return (window as any).require('electron').ipcRenderer;
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
+};
 
 export default function MiniWidget() {
   const [syncStatus, setSyncStatus] = useState<'green' | 'amber' | 'red'>('green');
@@ -10,22 +20,27 @@ export default function MiniWidget() {
   const [appModules, setAppModules] = useState<any>(null);
 
   useEffect(() => {
-    ipcRenderer.invoke('get-app-modules').then((modules: any) => {
-      setAppModules(modules || { synkk: true, orders: true });
-    });
+    const ipc = getIpcRenderer();
+    if (ipc) {
+      ipc.invoke('get-app-modules').then((modules: any) => {
+        setAppModules(modules || { synkk: true, orders: true });
+      });
+    }
   }, []);
 
   useEffect(() => {
     const updateSyncStatus = async () => {
+      const ipc = getIpcRenderer();
+      if (!ipc) return;
       try {
-        const lastSyncError = await ipcRenderer.invoke('get-last-sync-error');
+        const lastSyncError = await ipc.invoke('get-last-sync-error');
         if (lastSyncError) {
           setSyncStatus('red');
           setSyncText('Sync Error');
           return;
         }
 
-        const lastSyncTime = await ipcRenderer.invoke('get-last-sync-time');
+        const lastSyncTime = await ipc.invoke('get-last-sync-time');
         if (!lastSyncTime) {
           setSyncStatus('red');
           setSyncText('Never synced');
@@ -53,7 +68,7 @@ export default function MiniWidget() {
     };
 
     updateSyncStatus();
-    const interval = setInterval(updateSyncStatus, 60000); // Check every minute
+    const interval = setInterval(updateSyncStatus, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -74,13 +89,15 @@ export default function MiniWidget() {
   }, [notification]);
 
   useEffect(() => {
+    const ipc = getIpcRenderer();
+    if (!ipc) return;
     const handleNotification = (_event: any, payload: { type: 'order' | 'lead', data: any }) => {
       setNotification(payload);
     };
-    ipcRenderer.on('show-notification-modal', handleNotification);
+    ipc.on('show-notification-modal', handleNotification);
 
     return () => {
-      ipcRenderer.removeListener('show-notification-modal', handleNotification);
+      ipc.removeListener('show-notification-modal', handleNotification);
     };
   }, []);
 
@@ -95,7 +112,10 @@ export default function MiniWidget() {
     } else if (tab) {
       targetRoute = `/dashboard/${tab}`;
     }
-    ipcRenderer.invoke('set-view-mode', 'full', targetRoute);
+    const ipc = getIpcRenderer();
+    if (ipc) {
+      ipc.invoke('set-view-mode', 'full', targetRoute);
+    }
   };
 
   const handleNotificationClick = () => {
