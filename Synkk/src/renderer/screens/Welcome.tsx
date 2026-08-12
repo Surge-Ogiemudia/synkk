@@ -127,12 +127,24 @@ export default function Welcome() {
       const { ipcRenderer } = window.require('electron');
       
       const tryOfflineLogin = async () => {
+        console.log(`[OfflineAuthTrace] Attempting offline login for ${email}...`);
         const localCreds = await ipcRenderer.invoke('get-psx-credentials', email);
         if (localCreds && localCreds.email.toLowerCase() === email.toLowerCase() && localCreds.password === password) {
+          console.log('[OfflineAuthTrace] Offline password match successful!');
           const activeStorefront = await ipcRenderer.invoke('get-storefront-data');
           const storefrontToRestore = activeStorefront?.slug ? activeStorefront : (localCreds.storefront || { slug: 'local', name: 'My Pharmacy' });
           await ipcRenderer.invoke('save-storefront-data', storefrontToRestore);
           
+          if (localCreds.token) {
+            console.log('[OfflineAuthTrace] Restoring saved JWT session_token cookie into defaultSession & persist:pos...');
+            await ipcRenderer.invoke('set-session-cookie', { token: localCreds.token });
+          } else {
+            console.warn('[OfflineAuthTrace] WARNING: No cached token found in local credentials! Webviews may load unauthenticated.');
+          }
+
+          const verify = await ipcRenderer.invoke('verify-session-cookie');
+          console.log('[OfflineAuthTrace] Verification after offline login:', verify);
+
           const backendModules = await ipcRenderer.invoke('get-app-modules') || {};
           let targetPath = '/dashboard';
           if (backendModules.psxWeb === false) {
@@ -144,13 +156,16 @@ export default function Welcome() {
              else if (backendModules.staff !== false) targetPath = '/dashboard/staff';
              else if (backendModules.synkk !== false) targetPath = '/dashboard/synkk';
           }
+          console.log(`[OfflineAuthTrace] Navigating offline user to ${targetPath}`);
           navigate(targetPath, { state: { slug: storefrontToRestore.slug, name: storefrontToRestore.name, coordinates: storefrontToRestore.coordinates } });
           return true;
         }
+        console.warn('[OfflineAuthTrace] Offline login failed: credentials mismatch or not found.');
         return false;
       };
 
       if (!navigator.onLine) {
+        console.log('[OfflineAuthTrace] Device is offline. Executing tryOfflineLogin()...');
         const success = await tryOfflineLogin();
         if (!success) {
           throw new Error("Incorrect offline credentials or no local profile found.");
@@ -171,7 +186,7 @@ export default function Welcome() {
           })
         });
       } catch (fetchErr: any) {
-        // Network fetch failed (e.g. WiFi on but no internet connection). Attempt offline fallback.
+        console.log('[OfflineAuthTrace] Online fetch failed, falling back to offline login...');
         const success = await tryOfflineLogin().catch(() => false);
         if (success) return;
         throw new Error(`Network error: ${fetchErr.message || 'Unable to connect'}`);
@@ -179,6 +194,7 @@ export default function Welcome() {
 
       const data = await res.json();
       if (res.ok && data.token) {
+        console.log('[OfflineAuthTrace] Online login success. Implanting cookies & saving credentials with JWT token...');
         await ipcRenderer.invoke('set-session-cookie', { token: data.token });
         const storefrontData = { 
           slug: data.user.slug || 'local', 
@@ -190,7 +206,11 @@ export default function Welcome() {
           isNewUser: false 
         };
         await ipcRenderer.invoke('save-storefront-data', storefrontData);
-        await ipcRenderer.invoke('save-psx-credentials', { email, password, storefront: storefrontData });
+        await ipcRenderer.invoke('save-psx-credentials', { email, password, storefront: storefrontData, token: data.token });
+        
+        const verify = await ipcRenderer.invoke('verify-session-cookie');
+        console.log('[OfflineAuthTrace] Verification after online login:', verify);
+
         const backendModules = await ipcRenderer.invoke('get-app-modules') || {};
         let targetPath = '/dashboard';
         if (backendModules.psxWeb === false) {

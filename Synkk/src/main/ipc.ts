@@ -74,19 +74,15 @@ export function setupIpc() {
 
   ipcMain.handle('set-session-cookie', async (event, { token }) => {
     try {
+      console.log(`[OfflineAuthTrace] Implanting session_token cookie (${token ? token.substring(0, 10) + '...' : 'empty'})...`);
       const expirationDate = Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7);
+      const partitions = [
+        { name: 'defaultSession', target: session.defaultSession },
+        { name: 'persist:pos', target: session.fromPartition('persist:pos') }
+      ];
 
-      // PosTab.tsx / StaffTab.tsx load pos.psx.ng in the separate 'persist:pos'
-      // partition — an isolated cookie jar that never sees anything written to
-      // session.defaultSession. That's why POS/Staff have always forced a second
-      // login even though psx-pos's own backend (getSsoSession in its session.ts)
-      // already knows how to verify this exact session_token JWT and map the
-      // 'pharmacy' role to 'admin'. Writing the same token into both partitions is
-      // what actually makes "log in once" true instead of just true for EMR/Dispensary.
-      const partitions = [session.defaultSession, session.fromPartition('persist:pos')];
-
-      for (const target of partitions) {
-        const cookieStore = target.cookies;
+      for (const p of partitions) {
+        const cookieStore = p.target.cookies;
         await cookieStore.set({
           url: 'https://psx.ng',
           name: 'session_token',
@@ -104,11 +100,30 @@ export function setupIpc() {
           path: '/',
           expirationDate
         });
+        console.log(`[OfflineAuthTrace] Cookie successfully implanted into ${p.name}`);
       }
       return { success: true };
     } catch (e: any) {
-      console.error('Failed to set session cookie:', e);
+      console.error('[OfflineAuthTrace] Failed to set session cookie:', e);
       return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('verify-session-cookie', async () => {
+    try {
+      const defaultCookies = await session.defaultSession.cookies.get({ name: 'session_token' });
+      const posCookies = await session.fromPartition('persist:pos').cookies.get({ name: 'session_token' });
+      const result = {
+        defaultHasToken: defaultCookies.length > 0,
+        posHasToken: posCookies.length > 0,
+        defaultToken: defaultCookies[0]?.value ? `${defaultCookies[0].value.substring(0, 10)}...` : null,
+        posToken: posCookies[0]?.value ? `${posCookies[0].value.substring(0, 10)}...` : null
+      };
+      console.log('[OfflineAuthTrace] Cookie Verification:', JSON.stringify(result));
+      return result;
+    } catch (e: any) {
+      console.error('[OfflineAuthTrace] Cookie Verification Error:', e);
+      return { error: e.message };
     }
   });
 
@@ -779,24 +794,39 @@ ipcMain.handle('update-csv-path', async (event) => {
   });
 
   // ── Secure Credential Storage (safeStorage) ─────────────────────────
-  ipcMain.handle('save-psx-credentials', async (event, { email, password, storefront }: { email: string; password: string; storefront?: any }) => {
+  ipcMain.handle('save-psx-credentials', async (event, { email, password, storefront, token }: { email: string; password: string; storefront?: any; token?: string }) => {
     try {
       if (!safeStorage.isEncryptionAvailable()) {
         return { success: false, error: 'OS-level encryption is not available on this machine.' };
       }
       const encEmail = safeStorage.encryptString(email).toString('base64');
       const encPass = safeStorage.encryptString(password).toString('base64');
+      const encToken = token ? safeStorage.encryptString(token).toString('base64') : null;
       const storedStorefront = storefront || getStore('storefront');
 
       const psxUsers = (getStore('psxUsers') as any) || {};
       if (email) {
-        psxUsers[email.toLowerCase()] = { encEmail, encPass, storefront: storedStorefront };
+        const existing = psxUsers[email.toLowerCase()] || {};
+        psxUsers[email.toLowerCase()] = { 
+          encEmail, 
+          encPass, 
+          encToken: encToken || existing.encToken,
+          storefront: storedStorefront 
+        };
         setStore('psxUsers', psxUsers);
       }
 
-      setStore('psxCredentials', { encEmail, encPass, storefront: storedStorefront });
+      const existingCreds = (getStore('psxCredentials') as any) || {};
+      setStore('psxCredentials', { 
+        encEmail, 
+        encPass, 
+        encToken: encToken || existingCreds.encToken,
+        storefront: storedStorefront 
+      });
+      console.log(`[OfflineAuthTrace] Saved encrypted credentials & token for ${email} (hasToken: ${Boolean(encToken || (email && psxUsers[email.toLowerCase()]?.encToken))})`);
       return { success: true };
     } catch (error: any) {
+      console.error('[OfflineAuthTrace] Error saving credentials:', error);
       return { success: false, error: error.message };
     }
   });
@@ -817,8 +847,14 @@ ipcMain.handle('update-csv-path', async (event) => {
       
       const email = safeStorage.decryptString(Buffer.from(creds.encEmail, 'base64'));
       const password = safeStorage.decryptString(Buffer.from(creds.encPass, 'base64'));
-      return { email, password, storefront: creds.storefront };
-    } catch (e) {
+      let token = null;
+      if (creds.encToken) {
+        token = safeStorage.decryptString(Buffer.from(creds.encToken, 'base64'));
+      }
+      console.log(`[OfflineAuthTrace] Retrieved credentials for ${email} (tokenAvailable: ${Boolean(token)})`);
+      return { email, password, storefront: creds.storefront, token };
+    } catch (e: any) {
+      console.error('[OfflineAuthTrace] Error getting credentials:', e);
       return null;
     }
   });
