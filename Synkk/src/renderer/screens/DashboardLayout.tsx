@@ -184,17 +184,17 @@ export default function DashboardLayout() {
         
         <div className="relative z-10 w-full h-full flex flex-col">
           {/* Webview routes are persisted in the background */}
-          <div className={location.pathname === '/dashboard/pos' ? 'block flex-1' : 'hidden'}>
+          <div className={location.pathname === '/dashboard/pos' ? 'w-full h-full flex flex-col flex-1' : 'hidden'}>
             <PosTab />
           </div>
-          <div className={location.pathname === '/dashboard/dispensary' ? 'block flex-1' : 'hidden'}>
+          <div className={location.pathname === '/dashboard/dispensary' ? 'w-full h-full flex flex-col flex-1' : 'hidden'}>
             <DispensaryTab />
           </div>
-          <div className={location.pathname === '/dashboard/emr' ? 'block flex-1' : 'hidden'}>
+          <div className={location.pathname === '/dashboard/emr' ? 'w-full h-full flex flex-col flex-1' : 'hidden'}>
             <EmrTab />
           </div>
           
-          <div className={['/dashboard/pos', '/dashboard/dispensary', '/dashboard/emr'].includes(location.pathname) ? 'hidden' : 'block flex-1'}>
+          <div className={['/dashboard/pos', '/dashboard/dispensary', '/dashboard/emr'].includes(location.pathname) ? 'hidden' : 'w-full h-full flex flex-col flex-1'}>
             <Outlet />
           </div>
         </div>

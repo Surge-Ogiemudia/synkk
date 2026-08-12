@@ -11,9 +11,39 @@ import { processWatcher } from './process-watcher';
 
 import { triggerUpdateCheck } from './updater';
 
+function logTrace(msg: string) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  console.log(msg);
+  try {
+    const logPath = path.join(app.getPath('userData'), 'synkk-trace.log');
+    fs.appendFileSync(logPath, line);
+  } catch (e) {}
+}
+
 export function setupIpc() {
+  ipcMain.handle('log-trace', (event, message: string) => {
+    logTrace(message);
+    return { success: true };
+  });
+
+  ipcMain.handle('get-trace-log-path', () => {
+    return path.join(app.getPath('userData'), 'synkk-trace.log');
+  });
+
+  ipcMain.handle('read-trace-logs', () => {
+    try {
+      const logPath = path.join(app.getPath('userData'), 'synkk-trace.log');
+      if (fs.existsSync(logPath)) {
+        const content = fs.readFileSync(logPath, 'utf8');
+        return content.split('\n').slice(-200).join('\n');
+      }
+    } catch (e) {}
+    return 'No trace logs found.';
+  });
+
   ipcMain.on('route-changed', (event, route: string) => {
     (global as any).lastDashboardRoute = route;
+    logTrace(`[RouteTrace] Navigated to ${route}`);
   });
   ipcMain.handle('set-view-mode', (event, mode: 'mini' | 'full', targetRoute?: string) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -74,7 +104,7 @@ export function setupIpc() {
 
   ipcMain.handle('set-session-cookie', async (event, { token }) => {
     try {
-      console.log(`[OfflineAuthTrace] Implanting session_token cookie (${token ? token.substring(0, 10) + '...' : 'empty'})...`);
+      logTrace(`[OfflineAuthTrace] Implanting session_token cookie (${token ? token.substring(0, 10) + '...' : 'empty'})...`);
       const expirationDate = Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7);
       const partitions = [
         { name: 'defaultSession', target: session.defaultSession },
@@ -100,11 +130,11 @@ export function setupIpc() {
           path: '/',
           expirationDate
         });
-        console.log(`[OfflineAuthTrace] Cookie successfully implanted into ${p.name}`);
+        logTrace(`[OfflineAuthTrace] Cookie successfully implanted into ${p.name}`);
       }
       return { success: true };
     } catch (e: any) {
-      console.error('[OfflineAuthTrace] Failed to set session cookie:', e);
+      logTrace(`[OfflineAuthTrace] Failed to set session cookie: ${e.message}`);
       return { success: false, error: e.message };
     }
   });
@@ -119,10 +149,10 @@ export function setupIpc() {
         defaultToken: defaultCookies[0]?.value ? `${defaultCookies[0].value.substring(0, 10)}...` : null,
         posToken: posCookies[0]?.value ? `${posCookies[0].value.substring(0, 10)}...` : null
       };
-      console.log('[OfflineAuthTrace] Cookie Verification:', JSON.stringify(result));
+      logTrace(`[OfflineAuthTrace] Cookie Verification: ${JSON.stringify(result)}`);
       return result;
     } catch (e: any) {
-      console.error('[OfflineAuthTrace] Cookie Verification Error:', e);
+      logTrace(`[OfflineAuthTrace] Cookie Verification Error: ${e.message}`);
       return { error: e.message };
     }
   });
@@ -823,10 +853,10 @@ ipcMain.handle('update-csv-path', async (event) => {
         encToken: encToken || existingCreds.encToken,
         storefront: storedStorefront 
       });
-      console.log(`[OfflineAuthTrace] Saved encrypted credentials & token for ${email} (hasToken: ${Boolean(encToken || (email && psxUsers[email.toLowerCase()]?.encToken))})`);
+      logTrace(`[OfflineAuthTrace] Saved encrypted credentials & token for ${email} (hasToken: ${Boolean(encToken || (email && psxUsers[email.toLowerCase()]?.encToken))})`);
       return { success: true };
     } catch (error: any) {
-      console.error('[OfflineAuthTrace] Error saving credentials:', error);
+      logTrace(`[OfflineAuthTrace] Error saving credentials: ${error.message}`);
       return { success: false, error: error.message };
     }
   });
@@ -851,10 +881,10 @@ ipcMain.handle('update-csv-path', async (event) => {
       if (creds.encToken) {
         token = safeStorage.decryptString(Buffer.from(creds.encToken, 'base64'));
       }
-      console.log(`[OfflineAuthTrace] Retrieved credentials for ${email} (tokenAvailable: ${Boolean(token)})`);
+      logTrace(`[OfflineAuthTrace] Retrieved credentials for ${email} (tokenAvailable: ${Boolean(token)})`);
       return { email, password, storefront: creds.storefront, token };
     } catch (e: any) {
-      console.error('[OfflineAuthTrace] Error getting credentials:', e);
+      logTrace(`[OfflineAuthTrace] Error getting credentials: ${e.message}`);
       return null;
     }
   });
