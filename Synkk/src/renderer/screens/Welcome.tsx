@@ -221,7 +221,15 @@ export default function Welcome() {
         const verify = await ipcRenderer.invoke('verify-session-cookie');
         sendTrace(`[OfflineAuthTrace] Verification after online login: ${JSON.stringify(verify)}`);
 
-        const resModules = await ipcRenderer.invoke('get-app-modules') || {};
+        let resModules: any = {};
+        try {
+          const fetchPromise = ipcRenderer.invoke('get-app-modules');
+          const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({}), 2500));
+          resModules = await Promise.race([fetchPromise, timeoutPromise]);
+        } catch (e) {
+          sendTrace(`[OfflineAuthTrace] Error fetching app modules: ${e}`);
+        }
+
         const backendModules = resModules?.modules || resModules;
         const allowedModules = resModules?.allowedModules;
         const isPermitted = (key: string) => (!allowedModules || allowedModules[key] !== false) && (backendModules as any)[key] !== false;
@@ -236,6 +244,7 @@ export default function Welcome() {
            else if (isPermitted('staff')) targetPath = '/dashboard/staff';
            else if (isPermitted('synkk')) targetPath = '/dashboard/synkk';
         }
+        sendTrace(`[OfflineAuthTrace] Online login navigation target: ${targetPath}`);
         navigate(targetPath);
       } else {
         setAuthError(data.error || 'Login failed.');

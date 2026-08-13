@@ -958,9 +958,13 @@ ipcMain.handle('update-csv-path', async (event) => {
   // ── App Modules Config ──────────────────
   ipcMain.handle('get-app-modules', async () => {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
       const res = await session.defaultSession.fetch('https://www.psx.ng/api/pharmacy/terminal-modules', {
-        headers: { 'Accept': 'application/json' }
-      });
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId));
+
       if (res.ok) {
         const data = await res.json();
         const config = {
