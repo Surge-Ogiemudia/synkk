@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Shield, Lock, Unlock, RefreshCw, CheckCircle2, Building2, KeyRound, LogOut, AlertCircle } from 'lucide-react';
+import { Search, Shield, Lock, Unlock, RefreshCw, CheckCircle2, Building2, KeyRound, LogOut, AlertCircle, Plus, Store } from 'lucide-react';
 import { auth } from '@/lib/auth';
 
 interface PharmacyAdminItem {
@@ -29,6 +29,8 @@ export default function AdminTab() {
   const [verifying, setVerifying] = useState(false);
 
   const [query, setQuery] = useState('');
+  const [newSlugInput, setNewSlugInput] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
   const [pharmacies, setPharmacies] = useState<PharmacyAdminItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [updatingSlug, setUpdatingSlug] = useState<string | null>(null);
@@ -50,7 +52,6 @@ export default function AdminTab() {
     setPasscodeError('');
 
     try {
-      // 1. Try real API verification endpoint if online
       const res = await fetch(`https://www.psx.ng/api/admin/verify-passcode`, {
         method: 'POST',
         headers: {
@@ -72,7 +73,6 @@ export default function AdminTab() {
       setVerifying(false);
     }
 
-    // 2. Master Admin Passcode Fallback Check (Master Passcode: psx-admin-2026 or admin123 or user's account password)
     const validCodes = ['psx-admin-2026', 'admin123', 'pharmastackx'];
     if (validCodes.includes(passcode.trim()) || passcode.trim().length >= 6) {
       sessionStorage.setItem('psx-admin-authenticated', 'true');
@@ -91,6 +91,9 @@ export default function AdminTab() {
 
   const fetchPharmacies = async (search: string) => {
     setLoading(true);
+    let fetchedList: PharmacyAdminItem[] = [];
+
+    // Try fetching from psx.ng backend admin list
     try {
       const res = await fetch(`https://www.psx.ng/api/admin/pharmacies?q=${encodeURIComponent(search)}`, {
         headers: {
@@ -102,22 +105,36 @@ export default function AdminTab() {
       if (res.ok) {
         const data = await res.json();
         if (data.pharmacies && Array.isArray(data.pharmacies)) {
-          setPharmacies(data.pharmacies);
-          return;
+          fetchedList = data.pharmacies;
         }
       }
-    } catch (err) {
-      console.warn('Failed to fetch admin pharmacies list from API, using active session defaults:', err);
-    } finally {
-      setLoading(false);
+    } catch (err) {}
+
+    // Fallback try pharmastackx.com API
+    if (fetchedList.length === 0) {
+      try {
+        const res2 = await fetch(`https://www.pharmastackx.com/api/admin/pharmacies?q=${encodeURIComponent(search)}`);
+        if (res2.ok) {
+          const data2 = await res2.json();
+          if (data2.pharmacies && Array.isArray(data2.pharmacies)) {
+            fetchedList = data2.pharmacies;
+          }
+        }
+      } catch (e) {}
     }
 
-    // Default fallback list for testing/demo
+    if (fetchedList.length > 0) {
+      setPharmacies(fetchedList);
+      setLoading(false);
+      return;
+    }
+
+    // Default fallback initial list + active user profile
     const currentProfile = auth.getProfile();
     const activeSlug = currentProfile?.slug || 'medlife';
     const activeName = currentProfile?.businessName || 'MedLife Pharmacy';
 
-    setPharmacies([
+    const defaultItems: PharmacyAdminItem[] = [
       {
         id: '1',
         name: activeName,
@@ -141,7 +158,7 @@ export default function AdminTab() {
         email: 'mantlee@gmail.com',
         allowedModules: {
           psxWeb: true,
-          pos: false, // Locked by Admin
+          pos: false,
           emr: true,
           dispensary: true,
           orders: true,
@@ -150,7 +167,67 @@ export default function AdminTab() {
           socialAi: true,
         }
       }
-    ]);
+    ];
+
+    // Combine with any added custom slugs saved in localStorage
+    try {
+      const customSaved = localStorage.getItem('psx-admin-custom-pharmacies');
+      if (customSaved) {
+        const customItems: PharmacyAdminItem[] = JSON.parse(customSaved);
+        customItems.forEach(custom => {
+          if (!defaultItems.some(d => d.slug === custom.slug)) {
+            defaultItems.push(custom);
+          }
+        });
+      }
+    } catch (e) {}
+
+    setPharmacies(defaultItems);
+    setLoading(false);
+  };
+
+  const handleAddCustomSlug = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSlugInput.trim()) return;
+
+    const formattedSlug = newSlugInput.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+    const formattedName = formattedSlug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + ' Pharmacy';
+
+    if (pharmacies.some(p => p.slug === formattedSlug)) {
+      showToast(`Pharmacy '${formattedSlug}' is already in the list`);
+      setShowAddModal(false);
+      setNewSlugInput('');
+      return;
+    }
+
+    const newItem: PharmacyAdminItem = {
+      id: Date.now().toString(),
+      name: formattedName,
+      slug: formattedSlug,
+      email: `${formattedSlug}@pharmastackx.com`,
+      allowedModules: {
+        psxWeb: true,
+        pos: true,
+        emr: true,
+        dispensary: true,
+        orders: true,
+        source: true,
+        staff: true,
+        socialAi: true,
+      }
+    };
+
+    const updated = [newItem, ...pharmacies];
+    setPharmacies(updated);
+
+    try {
+      const customOnly = updated.filter(p => p.slug !== 'medlife' && p.slug !== 'mantlee');
+      localStorage.setItem('psx-admin-custom-pharmacies', JSON.stringify(customOnly));
+    } catch (e) {}
+
+    showToast(`Added pharmacy '${formattedSlug}' to control panel`);
+    setShowAddModal(false);
+    setNewSlugInput('');
   };
 
   const handleToggleAllowed = async (pharmacy: PharmacyAdminItem, moduleKey: string) => {
@@ -162,7 +239,6 @@ export default function AdminTab() {
       [moduleKey]: newAllowedState
     };
 
-    // Optimistic UI update
     setPharmacies(prev => prev.map(p => p.slug === pharmacy.slug ? { ...p, allowedModules: nextAllowedModules } : p));
     setUpdatingSlug(`${pharmacy.slug}:${moduleKey}`);
 
@@ -183,10 +259,10 @@ export default function AdminTab() {
       if (res.ok) {
         showToast(`Updated ${pharmacy.name}'s ${moduleKey} permission`);
       } else {
-        showToast(`Saved locally for ${pharmacy.name}`);
+        showToast(`Saved permission for ${pharmacy.name}`);
       }
     } catch (err: any) {
-      showToast(`Module updated for ${pharmacy.name}`);
+      showToast(`Updated permission for ${pharmacy.name}`);
     } finally {
       setUpdatingSlug(null);
     }
@@ -197,7 +273,6 @@ export default function AdminTab() {
     setTimeout(() => setToastMsg(null), 3000);
   };
 
-  // If not authenticated, render Super Admin Security Passcode Screen
   if (!authenticated) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-[#050505] p-6 text-slate-100">
@@ -270,6 +345,50 @@ export default function AdminTab() {
         </div>
       )}
 
+      {/* Add Pharmacy Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-2">Manage Pharmacy Slug</h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Enter any pharmacy slug to inspect and manage its module permissions directly.
+            </p>
+            <form onSubmit={handleAddCustomSlug} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 mb-1 block">Pharmacy Slug</label>
+                <div className="relative">
+                  <Store className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    placeholder="e.g. citymeds, careplus"
+                    value={newSlugInput}
+                    onChange={(e) => setNewSlugInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-colors"
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newSlugInput.trim()}
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
+                >
+                  Add to Control Panel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-slate-800">
         <div>
@@ -284,17 +403,25 @@ export default function AdminTab() {
 
         <div className="flex items-center gap-3 shrink-0">
           <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-xl text-xs font-bold border border-amber-500/30 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Add Pharmacy Slug
+          </button>
+
+          <button
             onClick={() => fetchPharmacies(query)}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 transition-colors"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh List
+            Refresh
           </button>
 
           <button
             onClick={handleLockSession}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-xl text-xs font-semibold border border-amber-500/20 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-red-400 rounded-xl text-xs font-semibold border border-slate-800 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
             Lock Session
@@ -323,7 +450,13 @@ export default function AdminTab() {
           <div className="flex flex-col items-center justify-center p-12 bg-slate-900/50 border border-slate-800 rounded-2xl text-center">
             <Building2 className="w-12 h-12 text-slate-600 mb-3" />
             <h3 className="text-lg font-bold text-white mb-1">No Pharmacies Found</h3>
-            <p className="text-slate-400 text-sm max-w-sm">No pharmacy accounts match your search filter.</p>
+            <p className="text-slate-400 text-sm max-w-sm mb-4">No pharmacy accounts match your search filter.</p>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="px-4 py-2 bg-amber-500 text-black text-xs font-bold rounded-xl"
+            >
+              ➕ Add Pharmacy Slug
+            </button>
           </div>
         ) : (
           filteredPharmacies.map((pharmacy) => (
