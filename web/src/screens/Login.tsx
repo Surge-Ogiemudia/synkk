@@ -48,11 +48,12 @@ export default function Login() {
     setError('');
     const result = await auth.login(identifier, password);
     if (result.ok) {
-      const modules = await getTerminalModules();
+      const { modules, allowedModules } = await getTerminalModules();
+      const isPermitted = (key: string) => (!allowedModules || (allowedModules as any)[key] !== false) && (modules as any)[key] !== false;
       
       const servicesToConnect: ('pos' | 'emr')[] = [];
-      if (modules.pos !== false || modules.staff !== false) servicesToConnect.push('pos');
-      if (modules.emr !== false || modules.dispensary !== false) servicesToConnect.push('emr');
+      if (isPermitted('pos') || isPermitted('staff')) servicesToConnect.push('pos');
+      if (isPermitted('emr') || isPermitted('dispensary')) servicesToConnect.push('emr');
 
       if (servicesToConnect.length > 0) {
         setStatusText('Connecting PSX Web...');
@@ -77,13 +78,13 @@ export default function Login() {
       }
       
       let targetPath = '/dashboard';
-      if (modules.psxWeb === false) {
-        if (modules.pos !== false) targetPath = '/dashboard/pos';
-        else if (modules.emr !== false) targetPath = '/dashboard/emr';
-        else if (modules.dispensary !== false) targetPath = '/dashboard/dispensary';
-        else if (modules.orders !== false) targetPath = '/dashboard/orders';
-        else if (modules.source !== false) targetPath = '/dashboard/source';
-        else if (modules.staff !== false) targetPath = '/dashboard/staff';
+      if (!isPermitted('psxWeb')) {
+        if (isPermitted('pos')) targetPath = '/dashboard/pos';
+        else if (isPermitted('emr')) targetPath = '/dashboard/emr';
+        else if (isPermitted('dispensary')) targetPath = '/dashboard/dispensary';
+        else if (isPermitted('orders')) targetPath = '/dashboard/orders';
+        else if (isPermitted('source')) targetPath = '/dashboard/source';
+        else if (isPermitted('staff')) targetPath = '/dashboard/staff';
       }
       setLoading(false);
       navigate(targetPath);

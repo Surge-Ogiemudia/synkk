@@ -21,6 +21,7 @@ import SourceTab from './renderer/screens/SourceTab';
 import StaffTab from './renderer/screens/StaffTab';
 import EmrTab from './renderer/screens/EmrTab';
 import SocialMediaTab from './renderer/screens/SocialMediaTab';
+import AdminTab from './renderer/screens/AdminTab';
 
 function App() {
   React.useEffect(() => {
@@ -209,6 +210,7 @@ function AppRoutes() {
             <Route path="source" element={<div className="w-full max-w-4xl mx-auto p-8"><SourceTab slug="main" /></div>} />
             <Route path="staff" element={<StaffTab />} />
             <Route path="emr" element={<div />} />
+            <Route path="admin" element={<AdminTab />} />
             
             {/* Synkk Engine — entire setup flow lives here */}
             <Route path="synkk" element={<div className="w-full max-w-4xl mx-auto p-8"><SynkkEngineTab /></div>} />
