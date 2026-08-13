@@ -32,6 +32,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<RootRoute />} />
+        <Route path="/admin" element={<AdminTab />} />
         <Route
           path="/dashboard"
           element={
