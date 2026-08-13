@@ -66,32 +66,34 @@ export default function DashboardLayout() {
   };
 
   const allNavItems = [
-    { name: 'PSX Web', path: '/dashboard', icon: Globe, show: isModulePermitted('psxWeb') },
-    { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, show: isModulePermitted('socialAi') },
-    { name: 'POS Register', path: '/dashboard/pos', icon: ShoppingCart, show: isModulePermitted('pos') },
-    { name: 'Synkk Engine', path: '/dashboard/synkk', icon: Settings, show: isModulePermitted('synkk') },
-    { name: 'EMR Terminal', path: '/dashboard/emr', icon: Database, show: isModulePermitted('emr') },
-    { name: 'Dispensary', path: '/dashboard/dispensary', icon: Activity, show: isModulePermitted('dispensary') },
-    { name: 'Online Orders & Leads', path: '/dashboard/orders', icon: Box, show: isModulePermitted('orders') },
-    { name: 'Source', path: '/dashboard/source', icon: Search, show: isModulePermitted('source') },
-    { name: 'Staff Management', path: '/dashboard/staff', icon: Users, show: isModulePermitted('staff') },
+    { name: 'PSX Web', path: '/dashboard', icon: Globe, key: 'psxWeb', show: isModulePermitted('psxWeb') },
+    { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, key: 'socialAi', show: isModulePermitted('socialAi') },
+    { name: 'POS Register', path: '/dashboard/pos', icon: ShoppingCart, key: 'pos', show: isModulePermitted('pos') },
+    { name: 'Synkk Engine', path: '/dashboard/synkk', icon: Settings, key: 'synkk', show: isModulePermitted('synkk') },
+    { name: 'EMR Terminal', path: '/dashboard/emr', icon: Database, key: 'emr', show: isModulePermitted('emr') },
+    { name: 'Dispensary', path: '/dashboard/dispensary', icon: Activity, key: 'dispensary', show: isModulePermitted('dispensary') },
+    { name: 'Online Orders & Leads', path: '/dashboard/orders', icon: Box, key: 'orders', show: isModulePermitted('orders') },
+    { name: 'Source', path: '/dashboard/source', icon: Search, key: 'source', show: isModulePermitted('source') },
+    { name: 'Staff Management', path: '/dashboard/staff', icon: Users, key: 'staff', show: isModulePermitted('staff') },
   ];
 
+  const currentNavItem = allNavItems.find((item) =>
+    item.path === '/dashboard'
+      ? location.pathname === '/dashboard'
+      : location.pathname === item.path || location.pathname.startsWith(item.path + '/')
+  );
+
   useEffect(() => {
-    const current = allNavItems.find((item) =>
-      item.path === '/dashboard'
-        ? location.pathname === '/dashboard'
-        : location.pathname === item.path || location.pathname.startsWith(item.path + '/')
-    );
-    if (current && !current.show) {
+    if (currentNavItem && !currentNavItem.show) {
       const firstEnabled = allNavItems.find(item => item.show);
       if (firstEnabled && firstEnabled.path !== location.pathname) {
-        navigate(firstEnabled.path);
+        navigate(firstEnabled.path, { replace: true });
       }
     }
-  }, [modules, allowedModules, location.pathname, navigate]);
+  }, [modules, allowedModules, location.pathname, navigate, currentNavItem]);
 
   const visibleNavItems = allNavItems.filter(item => item.show);
+  const isCurrentPermitted = !currentNavItem || currentNavItem.show;
 
   return (
     <div className="flex h-screen w-full bg-[#050505] text-slate-100 overflow-hidden">
@@ -117,26 +119,32 @@ export default function DashboardLayout() {
         </div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scroll">
-          {visibleNavItems.map((item) => {
-            const isActive = item.path === '/dashboard' 
-              ? location.pathname === '/dashboard' 
-              : location.pathname.startsWith(item.path);
+          {visibleNavItems.length === 0 ? (
+            <div className="p-4 text-center text-xs text-slate-500">
+              No modules currently enabled.
+            </div>
+          ) : (
+            visibleNavItems.map((item) => {
+              const isActive = item.path === '/dashboard' 
+                ? location.pathname === '/dashboard' 
+                : location.pathname.startsWith(item.path);
 
-            return (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                  isActive 
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-inner' 
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
-                }`}
-              >
-                <item.icon className={`shrink-0 w-5 h-5 ${isActive ? 'text-emerald-400' : ''}`} />
-                <span className="font-semibold text-sm flex-1 text-left whitespace-nowrap">{item.name}</span>
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => navigate(item.path)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                    isActive 
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-inner' 
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
+                  }`}
+                >
+                  <item.icon className={`shrink-0 w-5 h-5 ${isActive ? 'text-emerald-400' : ''}`} />
+                  <span className="font-semibold text-sm flex-1 text-left whitespace-nowrap">{item.name}</span>
+                </button>
+              );
+            })
+          )}
         </nav>
 
         {/* Footer Actions */}
@@ -188,20 +196,34 @@ export default function DashboardLayout() {
         <div className="blob bg-cyan-500/10 w-[500px] h-[500px] bottom-[-20%] right-[-10%] fixed pointer-events-none" style={{ animationDelay: '2s' }}></div>
         
         <div className="relative z-10 w-full h-full flex flex-col">
-          {/* Webview routes are persisted in the background */}
-          <div className={location.pathname === '/dashboard/pos' ? 'w-full h-full flex flex-col flex-1' : 'hidden'}>
-            <PosTab />
-          </div>
-          <div className={location.pathname === '/dashboard/dispensary' ? 'w-full h-full flex flex-col flex-1' : 'hidden'}>
-            <DispensaryTab />
-          </div>
-          <div className={location.pathname === '/dashboard/emr' ? 'w-full h-full flex flex-col flex-1' : 'hidden'}>
-            <EmrTab />
-          </div>
-          
-          <div className={['/dashboard/pos', '/dashboard/dispensary', '/dashboard/emr'].includes(location.pathname) ? 'hidden' : 'w-full h-full flex flex-col flex-1'}>
-            <Outlet />
-          </div>
+          {!isCurrentPermitted ? (
+            <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4 shadow-inner">
+                <Lock className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">Module Restricted by Admin</h2>
+              <p className="text-sm text-slate-400 max-w-md mb-6">
+                Access to this module has been restricted for your pharmacy terminal by Super Admin. Please contact your administrator to adjust module permissions.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Webview routes are persisted in the background */}
+              <div className={location.pathname === '/dashboard/pos' ? 'w-full h-full flex flex-col flex-1' : 'hidden'}>
+                <PosTab />
+              </div>
+              <div className={location.pathname === '/dashboard/dispensary' ? 'w-full h-full flex flex-col flex-1' : 'hidden'}>
+                <DispensaryTab />
+              </div>
+              <div className={location.pathname === '/dashboard/emr' ? 'w-full h-full flex flex-col flex-1' : 'hidden'}>
+                <EmrTab />
+              </div>
+              
+              <div className={['/dashboard/pos', '/dashboard/dispensary', '/dashboard/emr'].includes(location.pathname) ? 'hidden' : 'w-full h-full flex flex-col flex-1'}>
+                <Outlet />
+              </div>
+            </>
+          )}
         </div>
       </div>
 

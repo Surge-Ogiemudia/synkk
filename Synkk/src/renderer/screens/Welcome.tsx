@@ -221,16 +221,20 @@ export default function Welcome() {
         const verify = await ipcRenderer.invoke('verify-session-cookie');
         sendTrace(`[OfflineAuthTrace] Verification after online login: ${JSON.stringify(verify)}`);
 
-        const backendModules = await ipcRenderer.invoke('get-app-modules') || {};
+        const resModules = await ipcRenderer.invoke('get-app-modules') || {};
+        const backendModules = resModules?.modules || resModules;
+        const allowedModules = resModules?.allowedModules;
+        const isPermitted = (key: string) => (!allowedModules || allowedModules[key] !== false) && (backendModules as any)[key] !== false;
+
         let targetPath = '/dashboard';
-        if (backendModules.psxWeb === false) {
-           if (backendModules.pos !== false) targetPath = '/dashboard/pos';
-           else if (backendModules.emr !== false) targetPath = '/dashboard/emr';
-           else if (backendModules.dispensary !== false) targetPath = '/dashboard/dispensary';
-           else if (backendModules.orders !== false) targetPath = '/dashboard/orders';
-           else if (backendModules.source !== false) targetPath = '/dashboard/source';
-           else if (backendModules.staff !== false) targetPath = '/dashboard/staff';
-           else if (backendModules.synkk !== false) targetPath = '/dashboard/synkk';
+        if (!isPermitted('psxWeb')) {
+           if (isPermitted('pos')) targetPath = '/dashboard/pos';
+           else if (isPermitted('emr')) targetPath = '/dashboard/emr';
+           else if (isPermitted('dispensary')) targetPath = '/dashboard/dispensary';
+           else if (isPermitted('orders')) targetPath = '/dashboard/orders';
+           else if (isPermitted('source')) targetPath = '/dashboard/source';
+           else if (isPermitted('staff')) targetPath = '/dashboard/staff';
+           else if (isPermitted('synkk')) targetPath = '/dashboard/synkk';
         }
         navigate(targetPath);
       } else {
