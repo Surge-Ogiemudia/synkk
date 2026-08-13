@@ -75,7 +75,6 @@ export default function DashboardLayout() {
     { name: 'Online Orders & Leads', path: '/dashboard/orders', icon: Box, show: isModulePermitted('orders') },
     { name: 'Source', path: '/dashboard/source', icon: Search, show: isModulePermitted('source') },
     { name: 'Staff Management', path: '/dashboard/staff', icon: Users, show: isModulePermitted('staff') },
-    { name: 'Admin Control Panel', path: '/dashboard/admin', icon: Shield, show: true },
   ];
 
   useEffect(() => {
