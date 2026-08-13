@@ -10,6 +10,7 @@ import StaffTab from '@/screens/tabs/StaffTab';
 import OrdersAndLeadsTab from '@/screens/tabs/OrdersAndLeadsTab';
 import SourceTab from '@/screens/tabs/SourceTab';
 import SocialMediaTab from '@/screens/tabs/SocialMediaTab';
+import AdminTab from '@/screens/tabs/AdminTab';
 import { auth } from '@/lib/auth';
 
 function RequireSession({ children }: { children: React.ReactElement }) {
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="orders" element={<OrdersAndLeadsTab />} />
           <Route path="source" element={<SourceTab />} />
           <Route path="social" element={<SocialMediaTab />} />
+          <Route path="admin" element={<AdminTab />} />
         </Route>
       </Routes>
     </BrowserRouter>

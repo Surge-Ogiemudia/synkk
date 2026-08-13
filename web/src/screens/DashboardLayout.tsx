@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Globe, ShoppingCart, Database, Activity, Box, Search, Users, LogOut, Settings, Menu, X, Loader2, Sparkles } from 'lucide-react';
+import { Globe, ShoppingCart, Database, Activity, Box, Search, Users, LogOut, Settings, Menu, X, Loader2, Sparkles, Shield } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import { ensurePusherConnected } from '@/lib/pusher';
 import { getTerminalModules, type TerminalModules } from '@/lib/api';
@@ -14,6 +14,7 @@ interface NavItem {
   // undefined = always on, not user-configurable (matches desktop: PSX Web/home
   // isn't in its App Modules Configuration list either).
   moduleKey?: keyof TerminalModules;
+  isAdminOnly?: boolean;
 }
 
 // Synkk Engine is intentionally absent — it was the desktop-only local network
@@ -28,6 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Source', path: '/dashboard/source', icon: Search, moduleKey: 'source' },
   { name: 'Staff Management', path: '/dashboard/staff', icon: Users, moduleKey: 'staff' },
   { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, moduleKey: 'socialAi' },
+  { name: 'Admin Control Panel', path: '/dashboard/admin', icon: Shield, isAdminOnly: true },
 ];
 
 export default function DashboardLayout() {
@@ -35,6 +37,7 @@ export default function DashboardLayout() {
   const location = useLocation();
   const [profile, setProfile] = useState(auth.getProfile());
   const [modules, setModules] = useState<TerminalModules>({});
+  const [allowedModules, setAllowedModules] = useState<TerminalModules | undefined>(undefined);
   const [modulesFetched, setModulesFetched] = useState(false);
   const [loadingModules, setLoadingModules] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -63,10 +66,17 @@ export default function DashboardLayout() {
 
   useEffect(() => {
     getTerminalModules().then((res) => {
-      setModules(res);
+      setModules(res.modules);
+      setAllowedModules(res.allowedModules);
       setModulesFetched(true);
     });
   }, []);
+
+  const isModulePermitted = (key?: keyof TerminalModules) => {
+    if (!key) return true;
+    if (allowedModules && allowedModules[key] === false) return false; // Locked by Admin
+    return modules[key] !== false; // User Preference
+  };
 
   // Handle route redirect and seamless splash overlay dismissal
   useEffect(() => {
@@ -76,9 +86,9 @@ export default function DashboardLayout() {
       item.path === '/dashboard' ? location.pathname === '/dashboard' : location.pathname.startsWith(item.path)
     );
 
-    // If current tab is disabled, redirect to first enabled tab
-    if (current?.moduleKey && modules[current.moduleKey] === false) {
-      const firstEnabled = NAV_ITEMS.find((item) => !item.moduleKey || modules[item.moduleKey] !== false);
+    // If current tab is disabled or locked by Admin, redirect to first permitted tab
+    if (current?.moduleKey && !isModulePermitted(current.moduleKey)) {
+      const firstEnabled = NAV_ITEMS.find((item) => isModulePermitted(item.moduleKey));
       if (firstEnabled && firstEnabled.path !== location.pathname) {
         navigate(firstEnabled.path, { replace: true });
         return; // Keep splash overlay active while router updates the location
@@ -92,7 +102,7 @@ export default function DashboardLayout() {
       }, 120);
       return () => clearTimeout(timer);
     }
-  }, [modulesFetched, modules, location.pathname, navigate, loadingModules]);
+  }, [modulesFetched, modules, allowedModules, location.pathname, navigate, loadingModules]);
 
   const handleLogout = async () => {
     setSigningOut(true);
@@ -166,7 +176,7 @@ export default function DashboardLayout() {
         </div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scroll">
-          {NAV_ITEMS.filter((item) => !item.moduleKey || modules[item.moduleKey] !== false).map((item) => {
+          {NAV_ITEMS.filter((item) => isModulePermitted(item.moduleKey)).map((item) => {
             const isActive = item.path === '/dashboard'
               ? location.pathname === '/dashboard'
               : location.pathname.startsWith(item.path);
@@ -208,7 +218,7 @@ export default function DashboardLayout() {
       </div>
 
       {showSettings && (
-        <SettingsModal modules={modules} onChange={setModules} onClose={() => setShowSettings(false)} />
+        <SettingsModal modules={modules} allowedModules={allowedModules} onChange={setModules} onClose={() => setShowSettings(false)} />
       )}
 
       {/* Initial Module Loading Splash Overlay */}

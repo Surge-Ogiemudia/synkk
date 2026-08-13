@@ -1,8 +1,3 @@
-// Orders / leads / source endpoints. These all live on pharmastackx.com (a separate
-// domain/deployment from the psx.ng surfaces the iframe tabs use) and are scoped by
-// `slug` query params / body fields rather than session cookies, so a plain
-// cross-origin fetch works the same way the auth check-identifier call does — no
-// credentials, no cookie domain concerns.
 const API_BASE = 'https://www.pharmastackx.com';
 
 export async function fetchPendingOrders(slug: string) {
@@ -15,7 +10,6 @@ export async function updateOrderStatus(orderId: string, status: string) {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
-      // Matches the desktop app's hardcoded dev token — see Synkk/src/main/ipc.ts.
       Authorization: 'Bearer dev-token',
     },
     body: JSON.stringify({ orderId, status }),
@@ -44,12 +38,6 @@ export async function autocompleteSource(query: string) {
   return res.json();
 }
 
-// Terminal module visibility settings — synced to the pharmacy's account (not
-// per-browser), so turning a tab off follows the pharmacy to any device they log
-// into. Lives on www.psx.ng (session_token-authenticated), a different domain from
-// this app, so these need credentials:'include' to actually send the cookie —
-// unlike the plain public endpoints above. See that route's CORS handling for why
-// it works despite being cross-origin.
 export interface TerminalModules {
   psxWeb?: boolean;
   pos?: boolean;
@@ -59,23 +47,51 @@ export interface TerminalModules {
   source?: boolean;
   staff?: boolean;
   socialAi?: boolean;
+  synkk?: boolean;
 }
 
-export async function getTerminalModules(): Promise<TerminalModules> {
+export interface TerminalModulesConfig {
+  modules: TerminalModules;
+  allowedModules?: TerminalModules;
+}
+
+export async function getTerminalModules(): Promise<TerminalModulesConfig> {
   try {
     const res = await fetch('https://www.psx.ng/api/pharmacy/terminal-modules', {
       credentials: 'include',
     });
-    if (!res.ok) return {};
-    const data = await res.json();
-    return data.terminalModules || {};
+    if (res.ok) {
+      const data = await res.json();
+      const config: TerminalModulesConfig = {
+        modules: data.terminalModules || data.modules || {},
+        allowedModules: data.allowedModules || data.allowed || undefined,
+      };
+      try {
+        localStorage.setItem('psx-terminal-modules-config', JSON.stringify(config));
+      } catch (e) {}
+      return config;
+    }
   } catch (err) {
-    console.warn('Failed to fetch terminal modules:', err);
-    return {};
+    console.warn('Failed to fetch terminal modules from API:', err);
   }
+
+  // Fallback to local cache if network fails
+  try {
+    const cached = localStorage.getItem('psx-terminal-modules-config');
+    if (cached) return JSON.parse(cached);
+  } catch (e) {}
+
+  return { modules: {} };
 }
 
-export async function updateTerminalModules(modules: TerminalModules): Promise<TerminalModules> {
+export async function updateTerminalModules(modules: TerminalModules): Promise<TerminalModulesConfig> {
+  try {
+    const cached = localStorage.getItem('psx-terminal-modules-config');
+    const parsed = cached ? JSON.parse(cached) : {};
+    const updatedConfig: TerminalModulesConfig = { ...parsed, modules };
+    localStorage.setItem('psx-terminal-modules-config', JSON.stringify(updatedConfig));
+  } catch (e) {}
+
   try {
     const res = await fetch('https://www.psx.ng/api/pharmacy/terminal-modules', {
       method: 'PUT',
@@ -83,10 +99,20 @@ export async function updateTerminalModules(modules: TerminalModules): Promise<T
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(modules),
     });
-    const data = await res.json();
-    return data.terminalModules || {};
+    if (res.ok) {
+      const data = await res.json();
+      const config: TerminalModulesConfig = {
+        modules: data.terminalModules || data.modules || modules,
+        allowedModules: data.allowedModules || data.allowed || undefined,
+      };
+      try {
+        localStorage.setItem('psx-terminal-modules-config', JSON.stringify(config));
+      } catch (e) {}
+      return config;
+    }
   } catch (err) {
-    console.warn('Failed to update terminal modules:', err);
-    return {};
+    console.warn('Failed to update terminal modules on API:', err);
   }
+
+  return { modules };
 }

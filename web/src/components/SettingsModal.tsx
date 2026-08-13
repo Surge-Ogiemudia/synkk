@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Settings } from 'lucide-react';
+import { X, Settings, Lock } from 'lucide-react';
 import { updateTerminalModules, type TerminalModules } from '@/lib/api';
 
 const MODULE_LABELS: { key: keyof TerminalModules; label: string }[] = [
@@ -15,10 +15,12 @@ const MODULE_LABELS: { key: keyof TerminalModules; label: string }[] = [
 
 export default function SettingsModal({
   modules,
+  allowedModules,
   onChange,
   onClose,
 }: {
   modules: TerminalModules;
+  allowedModules?: TerminalModules;
   onChange: (modules: TerminalModules) => void;
   onClose: () => void;
 }) {
@@ -26,6 +28,7 @@ export default function SettingsModal({
   const [local, setLocal] = useState<TerminalModules>(modules);
 
   const toggle = async (key: keyof TerminalModules) => {
+    if (allowedModules && allowedModules[key] === false) return; // Admin Restricted
     const next = { ...local, [key]: local[key] === false ? true : false };
     setLocal(next);
     onChange(next);
@@ -52,21 +55,35 @@ export default function SettingsModal({
 
         <div className="px-6 py-4 space-y-1">
           <p className="text-xs text-slate-500 mb-3">
-            Choose which tabs show up here. This is saved to your pharmacy account, so it
-            follows you to any device you log into — desktop or web.
+            Choose which tabs show up here. Saved to your pharmacy account across all devices.
           </p>
           {MODULE_LABELS.map(({ key, label }) => {
-            const isOn = local[key] !== false;
+            const isLockedByAdmin = allowedModules && allowedModules[key] === false;
+            const isOn = !isLockedByAdmin && local[key] !== false;
             return (
               <div
                 key={key}
                 className="flex items-center justify-between py-2.5 border-b border-slate-800/50 last:border-0"
               >
-                <span className="text-sm text-slate-200">{label}</span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-sm ${isLockedByAdmin ? 'text-slate-500 line-through' : 'text-slate-200'}`}>
+                    {label}
+                  </span>
+                  {isLockedByAdmin && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                      <Lock className="w-3 h-3" /> Admin Restricted
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={() => toggle(key)}
+                  disabled={isLockedByAdmin}
                   className={`relative w-11 h-6 rounded-full transition-colors ${
-                    isOn ? 'bg-emerald-500' : 'bg-slate-700'
+                    isLockedByAdmin
+                      ? 'bg-slate-800 cursor-not-allowed opacity-50'
+                      : isOn
+                      ? 'bg-emerald-500'
+                      : 'bg-slate-700'
                   }`}
                 >
                   <span

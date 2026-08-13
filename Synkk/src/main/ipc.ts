@@ -956,14 +956,49 @@ ipcMain.handle('update-csv-path', async (event) => {
   });
 
   // ── App Modules Config ──────────────────
-  ipcMain.handle('get-app-modules', () => {
-    return getStore('appModules');
+  ipcMain.handle('get-app-modules', async () => {
+    try {
+      const res = await session.defaultSession.fetch('https://www.psx.ng/api/pharmacy/terminal-modules', {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const config = {
+          modules: data.terminalModules || data.modules || getStore('appModules'),
+          allowedModules: data.allowedModules || data.allowed || undefined
+        };
+        if (data.terminalModules) {
+          setStore('appModules', data.terminalModules);
+        }
+        if (data.allowedModules) {
+          setStore('allowedModules', data.allowedModules);
+        }
+        return config;
+      }
+    } catch (err: any) {
+      console.log('[Modules] Failed to fetch modules from DB API, using local cache:', err.message);
+    }
+    return {
+      modules: getStore('appModules'),
+      allowedModules: getStore('allowedModules') || undefined
+    };
   });
 
-  ipcMain.handle('save-app-modules', (event, modules) => {
+  ipcMain.handle('save-app-modules', async (event, modules) => {
     const oldModules = getStore('appModules') as any;
     setStore('appModules', modules);
-    console.log('[Modules] App Modules configuration saved.', modules);
+    console.log('[Modules] App Modules configuration saved locally.', modules);
+
+    try {
+      await session.defaultSession.fetch('https://www.psx.ng/api/pharmacy/terminal-modules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(modules)
+      });
+      console.log('[Modules] App Modules configuration synced to DB.');
+    } catch (err: any) {
+      console.warn('[Modules] Failed to sync modules to DB API:', err.message);
+    }
 
     // If Synkk Engine was just toggled OFF
     if (oldModules?.synkk !== false && modules.synkk === false) {
