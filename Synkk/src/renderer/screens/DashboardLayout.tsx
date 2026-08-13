@@ -80,7 +80,9 @@ export default function DashboardLayout() {
 
   useEffect(() => {
     const current = allNavItems.find((item) =>
-      item.path === '/dashboard' ? location.pathname === '/dashboard' : location.pathname.startsWith(item.path)
+      item.path === '/dashboard'
+        ? location.pathname === '/dashboard'
+        : location.pathname === item.path || location.pathname.startsWith(item.path + '/')
     );
     if (current && !current.show) {
       const firstEnabled = allNavItems.find(item => item.show);

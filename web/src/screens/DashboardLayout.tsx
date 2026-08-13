@@ -83,7 +83,9 @@ export default function DashboardLayout() {
     if (!modulesFetched) return;
 
     const current = NAV_ITEMS.find((item) =>
-      item.path === '/dashboard' ? location.pathname === '/dashboard' : location.pathname.startsWith(item.path)
+      item.path === '/dashboard'
+        ? location.pathname === '/dashboard'
+        : location.pathname === item.path || location.pathname.startsWith(item.path + '/')
     );
 
     // If current tab is disabled or locked by Admin, redirect to first permitted tab
