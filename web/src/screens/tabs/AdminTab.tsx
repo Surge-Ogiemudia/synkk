@@ -22,6 +22,17 @@ const ALL_MODULES: { key: string; label: string }[] = [
   { key: 'socialAi', label: 'Subdomain & Social AI' },
 ];
 
+const DEFAULT_ALLOWED: Record<string, boolean> = {
+  psxWeb: true,
+  pos: true,
+  emr: true,
+  dispensary: true,
+  orders: true,
+  source: true,
+  staff: true,
+  socialAi: true,
+};
+
 export default function AdminTab() {
   const [authenticated, setAuthenticated] = useState(false);
   const [passcode, setPasscode] = useState('');
@@ -89,9 +100,35 @@ export default function AdminTab() {
     setPasscode('');
   };
 
+  // Helper to load persistent local module entitlements map
+  const getSavedEntitlementsMap = (): Record<string, Record<string, boolean>> => {
+    try {
+      const raw = localStorage.getItem('psx-admin-allowed-modules');
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return {};
+  };
+
+  const saveEntitlementForSlug = (slug: string, allowedModules: Record<string, boolean>) => {
+    try {
+      const currentMap = getSavedEntitlementsMap();
+      currentMap[slug] = allowedModules;
+      localStorage.setItem('psx-admin-allowed-modules', JSON.stringify(currentMap));
+      localStorage.setItem(`psx-allowed-modules-${slug}`, JSON.stringify(allowedModules));
+
+      // Broadcast event across tabs/windows
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('psx-admin-channel');
+        bc.postMessage({ type: 'ALLOWED_MODULES_UPDATED', slug, allowedModules });
+        bc.close();
+      }
+    } catch (e) {}
+  };
+
   const fetchPharmacies = async (search: string) => {
     setLoading(true);
     let fetchedList: PharmacyAdminItem[] = [];
+    const savedMap = getSavedEntitlementsMap();
 
     // Try fetching from psx.ng backend admin list
     try {
@@ -123,12 +160,6 @@ export default function AdminTab() {
       } catch (e) {}
     }
 
-    if (fetchedList.length > 0) {
-      setPharmacies(fetchedList);
-      setLoading(false);
-      return;
-    }
-
     // Default fallback initial list + active user profile
     const currentProfile = auth.getProfile();
     const activeSlug = currentProfile?.slug || 'medlife';
@@ -140,34 +171,18 @@ export default function AdminTab() {
         name: activeName,
         slug: activeSlug,
         email: (currentProfile as any)?.email || 'admin@pharmastackx.com',
-        allowedModules: {
-          psxWeb: true,
-          pos: true,
-          emr: true,
-          dispensary: true,
-          orders: true,
-          source: true,
-          staff: true,
-          socialAi: true,
-        }
+        allowedModules: { ...DEFAULT_ALLOWED }
       },
       {
         id: '2',
         name: 'Mantle Pharmacy',
         slug: 'mantlee',
         email: 'mantlee@gmail.com',
-        allowedModules: {
-          psxWeb: true,
-          pos: false,
-          emr: true,
-          dispensary: true,
-          orders: true,
-          source: true,
-          staff: false,
-          socialAi: true,
-        }
+        allowedModules: { ...DEFAULT_ALLOWED }
       }
     ];
+
+    let combinedList = fetchedList.length > 0 ? fetchedList : defaultItems;
 
     // Combine with any added custom slugs saved in localStorage
     try {
@@ -175,14 +190,23 @@ export default function AdminTab() {
       if (customSaved) {
         const customItems: PharmacyAdminItem[] = JSON.parse(customSaved);
         customItems.forEach(custom => {
-          if (!defaultItems.some(d => d.slug === custom.slug)) {
-            defaultItems.push(custom);
+          if (!combinedList.some(d => d.slug === custom.slug)) {
+            combinedList.push(custom);
           }
         });
       }
     } catch (e) {}
 
-    setPharmacies(defaultItems);
+    // OVERRIDE with persistent local saved entitlements so refresh NEVER resets toggles
+    combinedList = combinedList.map(item => {
+      const savedForSlug = savedMap[item.slug];
+      if (savedForSlug) {
+        return { ...item, allowedModules: { ...item.allowedModules, ...savedForSlug } };
+      }
+      return item;
+    });
+
+    setPharmacies(combinedList);
     setLoading(false);
   };
 
@@ -205,20 +229,12 @@ export default function AdminTab() {
       name: formattedName,
       slug: formattedSlug,
       email: `${formattedSlug}@pharmastackx.com`,
-      allowedModules: {
-        psxWeb: true,
-        pos: true,
-        emr: true,
-        dispensary: true,
-        orders: true,
-        source: true,
-        staff: true,
-        socialAi: true,
-      }
+      allowedModules: { ...DEFAULT_ALLOWED }
     };
 
     const updated = [newItem, ...pharmacies];
     setPharmacies(updated);
+    saveEntitlementForSlug(formattedSlug, DEFAULT_ALLOWED);
 
     try {
       const customOnly = updated.filter(p => p.slug !== 'medlife' && p.slug !== 'mantlee');
@@ -239,8 +255,10 @@ export default function AdminTab() {
       [moduleKey]: newAllowedState
     };
 
+    // Update state & persist locally immediately
     setPharmacies(prev => prev.map(p => p.slug === pharmacy.slug ? { ...p, allowedModules: nextAllowedModules } : p));
     setUpdatingSlug(`${pharmacy.slug}:${moduleKey}`);
+    saveEntitlementForSlug(pharmacy.slug, nextAllowedModules);
 
     try {
       const res = await fetch(`https://www.psx.ng/api/admin/pharmacies/modules`, {
@@ -257,12 +275,12 @@ export default function AdminTab() {
       });
 
       if (res.ok) {
-        showToast(`Updated ${pharmacy.name}'s ${moduleKey} permission`);
+        showToast(`Saved ${pharmacy.name}'s ${moduleKey} entitlement`);
       } else {
-        showToast(`Saved permission for ${pharmacy.name}`);
+        showToast(`Saved permission locally for ${pharmacy.name}`);
       }
     } catch (err: any) {
-      showToast(`Updated permission for ${pharmacy.name}`);
+      showToast(`Saved permission locally for ${pharmacy.name}`);
     } finally {
       setUpdatingSlug(null);
     }
@@ -318,7 +336,7 @@ export default function AdminTab() {
                   <RefreshCw className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
-                    <Lock className="w-4 h-4" /> Unlock Admin Panel
+                    <Shield className="w-4 h-4" /> Verify Admin Passcode
                   </>
                 )}
               </button>
@@ -336,52 +354,54 @@ export default function AdminTab() {
   );
 
   return (
-    <div className="w-full h-full flex flex-col bg-[#050505] text-slate-100 p-6 overflow-y-auto custom-scroll">
+    <div className="w-full h-full flex flex-col bg-[#050505] text-slate-100 p-6 overflow-y-auto custom-scroll relative">
       {/* Toast Notification */}
       {toastMsg && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 bg-emerald-500 text-black font-bold rounded-xl shadow-2xl animate-in fade-in slide-in-from-bottom-3 duration-200 text-sm">
-          <CheckCircle2 className="w-5 h-5" />
+        <div className="fixed top-6 right-6 z-50 bg-emerald-500 text-black font-bold px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200 text-xs">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{toastMsg}</span>
         </div>
       )}
 
-      {/* Add Pharmacy Modal */}
+      {/* Add Custom Pharmacy Slug Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-white mb-2">Manage Pharmacy Slug</h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Enter any pharmacy slug to inspect and manage its module permissions directly.
+          <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-3xl p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Store className="w-5 h-5 text-amber-400" /> Add Pharmacy Slug
+              </h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white transition-colors">✕</button>
+            </div>
+            <p className="text-xs text-slate-400">
+              Enter any pharmacy slug to add it to the Super Admin control panel and manage its module entitlements.
             </p>
             <form onSubmit={handleAddCustomSlug} className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-1 block">Pharmacy Slug</label>
-                <div className="relative">
-                  <Store className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder="e.g. citymeds, careplus"
-                    value={newSlugInput}
-                    onChange={(e) => setNewSlugInput(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-colors"
-                    autoFocus
-                  />
-                </div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Pharmacy Slug</label>
+                <input 
+                  type="text"
+                  placeholder="e.g. citymeds, careplus, stjude..."
+                  value={newSlugInput}
+                  onChange={(e) => setNewSlugInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
+                  autoFocus
+                />
               </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={!newSlugInput.trim()}
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-xs shadow-lg disabled:opacity-50"
                 >
-                  Add to Control Panel
+                  Add Pharmacy
                 </button>
               </div>
             </form>
@@ -389,31 +409,30 @@ export default function AdminTab() {
         </div>
       )}
 
-      {/* Header Banner */}
+      {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-slate-800">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2">
             <Shield className="w-6 h-6 text-amber-400" />
-            <h1 className="text-2xl font-bold text-white tracking-tight">Super Admin Module Control</h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Super Admin Module Control Panel</h1>
           </div>
-          <p className="text-slate-400 text-sm">
-            Manage master module entitlements across all pharmacy accounts. Locking a module disables it in the pharmacy's terminal settings and blocks user access across all web & desktop apps.
+          <p className="text-sm text-slate-400 mt-1">
+            Master control panel for overriding & locking module access across terminals.
           </p>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-xl text-xs font-bold border border-amber-500/30 transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-xs transition-all shadow-lg shadow-amber-500/20"
           >
-            <Plus className="w-4 h-4" />
-            Add Pharmacy Slug
+            <Plus className="w-4 h-4" /> Add Pharmacy Slug
           </button>
 
           <button
             onClick={() => fetchPharmacies(query)}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold border border-slate-800 transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -497,7 +516,7 @@ export default function AdminTab() {
                       className={`flex items-center justify-between p-3.5 rounded-xl border transition-all ${
                         isAllowed
                           ? 'bg-slate-800/40 border-slate-700/60'
-                          : 'bg-amber-950/10 border-amber-500/30'
+                          : 'bg-amber-950/20 border-amber-500/40 shadow-inner'
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0 pr-2">
@@ -506,7 +525,7 @@ export default function AdminTab() {
                         ) : (
                           <Lock className="w-4 h-4 text-amber-400 shrink-0" />
                         )}
-                        <span className={`text-xs font-semibold truncate ${isAllowed ? 'text-slate-200' : 'text-amber-200'}`}>
+                        <span className={`text-xs font-semibold truncate ${isAllowed ? 'text-slate-200' : 'text-amber-300 font-bold'}`}>
                           {label}
                         </span>
                       </div>
@@ -516,7 +535,7 @@ export default function AdminTab() {
                         disabled={isUpdating}
                         className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1 shrink-0 ${
                           isAllowed
-                            ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                            ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 hover:border-amber-400'
                             : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20'
                         }`}
                       >
@@ -524,11 +543,11 @@ export default function AdminTab() {
                           <RefreshCw className="w-3 h-3 animate-spin" />
                         ) : isAllowed ? (
                           <>
-                            <Lock className="w-3 h-3" /> Lock
+                            <Lock className="w-3 h-3 text-amber-400" /> Lock
                           </>
                         ) : (
                           <>
-                            <Unlock className="w-3 h-3" /> Allow
+                            <Unlock className="w-3 h-3 text-emerald-200" /> Allow
                           </>
                         )}
                       </button>

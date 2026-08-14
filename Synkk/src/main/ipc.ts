@@ -957,6 +957,10 @@ ipcMain.handle('update-csv-path', async (event) => {
 
   // ── App Modules Config ──────────────────
   ipcMain.handle('get-app-modules', async () => {
+    const storefront = getStore('storefront') as any;
+    const slug = storefront?.slug;
+    const adminAllowedStore = slug ? (getStore(`allowedModules-${slug}`) || getStore('allowedModules')) : getStore('allowedModules');
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -969,13 +973,14 @@ ipcMain.handle('update-csv-path', async (event) => {
         const data = await res.json();
         const config = {
           modules: data.terminalModules || data.modules || getStore('appModules'),
-          allowedModules: data.allowedModules || data.allowed || undefined
+          allowedModules: data.allowedModules || data.allowed || adminAllowedStore
         };
         if (data.terminalModules) {
           setStore('appModules', data.terminalModules);
         }
         if (data.allowedModules) {
           setStore('allowedModules', data.allowedModules);
+          if (slug) setStore(`allowedModules-${slug}`, data.allowedModules);
         }
         return config;
       }
@@ -984,7 +989,7 @@ ipcMain.handle('update-csv-path', async (event) => {
     }
     return {
       modules: getStore('appModules'),
-      allowedModules: getStore('allowedModules') || undefined
+      allowedModules: adminAllowedStore
     };
   });
 

@@ -1,3 +1,5 @@
+import { auth } from './auth';
+
 const API_BASE = 'https://www.pharmastackx.com';
 
 export async function fetchPendingOrders(slug: string) {
@@ -56,6 +58,22 @@ export interface TerminalModulesConfig {
 }
 
 export async function getTerminalModules(): Promise<TerminalModulesConfig> {
+  let adminAllowed: TerminalModules | undefined = undefined;
+
+  try {
+    const currentProfile = auth.getProfile();
+    const slug = currentProfile?.slug;
+    const rawAdminMap = localStorage.getItem('psx-admin-allowed-modules');
+    if (rawAdminMap && slug) {
+      const map = JSON.parse(rawAdminMap);
+      if (map[slug]) adminAllowed = map[slug];
+    }
+    if (!adminAllowed && slug) {
+      const rawSingle = localStorage.getItem(`psx-allowed-modules-${slug}`);
+      if (rawSingle) adminAllowed = JSON.parse(rawSingle);
+    }
+  } catch (e) {}
+
   try {
     const res = await fetch('https://www.psx.ng/api/pharmacy/terminal-modules', {
       credentials: 'include',
@@ -64,7 +82,7 @@ export async function getTerminalModules(): Promise<TerminalModulesConfig> {
       const data = await res.json();
       const config: TerminalModulesConfig = {
         modules: data.terminalModules || data.modules || {},
-        allowedModules: data.allowedModules || data.allowed || undefined,
+        allowedModules: data.allowedModules || data.allowed || adminAllowed,
       };
       try {
         localStorage.setItem('psx-terminal-modules-config', JSON.stringify(config));
@@ -78,10 +96,14 @@ export async function getTerminalModules(): Promise<TerminalModulesConfig> {
   // Fallback to local cache if network fails
   try {
     const cached = localStorage.getItem('psx-terminal-modules-config');
-    if (cached) return JSON.parse(cached);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (adminAllowed) parsed.allowedModules = adminAllowed;
+      return parsed;
+    }
   } catch (e) {}
 
-  return { modules: {} };
+  return { modules: {}, allowedModules: adminAllowed };
 }
 
 export async function updateTerminalModules(modules: TerminalModules): Promise<TerminalModulesConfig> {
