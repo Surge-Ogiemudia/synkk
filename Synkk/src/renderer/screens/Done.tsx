@@ -11,11 +11,13 @@ let currentChannel: any = null;
 export default function Done() {
   const location = useLocation();
   const navigate = useNavigate();
-  const slug = location.state?.slug || 'my-pharmacy';
-  const name = location.state?.name || 'My Pharmacy';
+  const [slug, setSlug] = React.useState(location.state?.slug || 'my-pharmacy');
+  const [name, setName] = React.useState(location.state?.name || 'My Pharmacy');
   const coordinates = location.state?.coordinates || null;
   
   const [syncFreq, setSyncFreq] = React.useState('15m');
+  const [isWebPos, setIsWebPos] = React.useState(false);
+  const [dbPath, setDbPath] = React.useState<string | null>(null);
   const [lastSync, setLastSync] = React.useState<string | null>(null);
   const [syncError, setSyncError] = React.useState<{ code: string; userMessage: string; severity: string; timestamp?: string } | null>(null);
   const [isRetrying, setIsRetrying] = React.useState(false);
@@ -128,24 +130,45 @@ export default function Done() {
     }
 
     const loadSettings = async () => {
+      // @ts-ignore
+      const { ipcRenderer } = window.require('electron');
+      const storefront = await ipcRenderer.invoke('get-storefront-data');
+      if (storefront?.slug) setSlug(storefront.slug);
+      if (storefront?.name) setName(storefront.name);
+
       const freq = await ipcRenderer.invoke('get-sync-frequency');
-      const time = await ipcRenderer.invoke('get-last-sync-time');
       const settings = await ipcRenderer.invoke('get-settings');
-      
+      const pairing = await ipcRenderer.invoke('get-pairing-data');
+
       if (freq) setSyncFreq(freq);
-      if (time) setLastSync(time);
       if (settings && settings.notifyOutOfStock !== undefined) {
         setNotifyOutOfStock(settings.notifyOutOfStock);
       }
       if (settings && settings.alarmDuration !== undefined) {
         setAlarmDuration(settings.alarmDuration);
       }
-      
-      // Load persisted sync error (if any)
-      const lastError = await ipcRenderer.invoke('get-last-sync-error');
-      if (lastError) {
-        setSyncError(lastError);
+
+      if (pairing?.connectionType === 'web-pos' || pairing?.posIdentifier === 'web-extension') {
+        setIsWebPos(true);
+        setDbPath(null);
+        try {
+          const res = await fetch(`https://www.psx.ng/api/extension/dashboard-data?pharmacyId=${encodeURIComponent(storefront?.slug || "")}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.inventory && data.inventory.length > 0) {
+              setLastSync(data.inventory[0].lastSynced);
+            }
+          }
+        } catch(e) {}
+      } else {
+        setIsWebPos(false);
+        setDbPath(pairing?.posIdentifier || null);
+        const time = await ipcRenderer.invoke('get-last-sync-time');
+        if (time) setLastSync(time);
       }
+      
+      const lastError = await ipcRenderer.invoke('get-last-sync-error');
+      if (lastError) setSyncError(lastError);
     };
     loadSettings();
     
@@ -364,58 +387,109 @@ export default function Done() {
               <div className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 mb-6 relative">
                 <h3 className="text-sm font-semibold text-slate-300 mb-4">Sync Settings</h3>
                 
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm text-slate-400">Sync Frequency</span>
-                  <select 
-                    value={syncFreq} 
-                    onChange={handleFreqChange}
-                    className="bg-slate-800 border border-slate-600 text-white text-xs rounded-md px-2 py-1 outline-none focus:border-emerald-500 min-w-[120px]"
-                  >
-                    <option value="15m">Every 15 mins</option>
-                    <option value="1h">Hourly</option>
-                    <option value="12h">Every 12 hours</option>
-                    <option value="24h">Daily (Midnight)</option>
-                  </select>
-                </div>
+                {isWebPos && (
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm text-slate-400">Connection Type</span>
+                    <span className="text-xs text-emerald-400 font-medium">🌐 Web POS Extension</span>
+                  </div>
+                )}
+
+                {!isWebPos && (
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm text-slate-400">Sync Status</span>
+                    {dbPath ? (
+                      <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Active
+                      </span>
+                    ) : (
+                      <span className="text-xs text-rose-400 font-medium flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-rose-500"></span> Disconnected
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm text-slate-400">Sync Frequency</span>
+                  {isWebPos ? (
+                    <span className="text-xs text-slate-300 bg-slate-800 border border-slate-700 px-2 py-1 rounded-md min-w-[120px] text-center opacity-70">
+                      Daily (Midnight)
+                    </span>
+                  ) : (
+                    <select 
+                      value={syncFreq} 
+                      onChange={handleFreqChange}
+                      disabled={!dbPath}
+                      className="bg-slate-800 border border-slate-600 text-white text-xs rounded-md px-2 py-1 outline-none focus:border-emerald-500 min-w-[120px] disabled:opacity-50"
+                    >
+                      <option value="15m">Every 15 mins</option>
+                      <option value="1h">Hourly</option>
+                      <option value="12h">Every 12 hours</option>
+                      <option value="24h">Daily (Midnight)</option>
+                    </select>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between mb-6">
                   <span className="text-sm text-slate-400">Last Synced</span>
                   <span className="text-sm text-slate-300 font-mono">
                     {lastSync ? new Date(lastSync).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Pending...'}
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-2">
-                  <span className="text-sm text-slate-400">Force Sync</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={async () => {
-                        setSyncError(null);
-                        setIsSyncing(true);
-                        // @ts-ignore
-                        const { ipcRenderer } = window.require('electron');
-                        const pairingData = await ipcRenderer.invoke('get-pairing-data');
-                        if (pairingData?.posIdentifier?.endsWith('.csv')) {
+                <div className="border-t border-slate-800 pt-4 pb-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-400">Force Sync</span>
+                    
+                    {!isWebPos && !dbPath ? (
+                      <button 
+                        onClick={async () => {
+                          // @ts-ignore
+                          const { ipcRenderer } = window.require('electron');
                           const newPath = await ipcRenderer.invoke('update-csv-path');
-                          if (!newPath) {
-                            setIsSyncing(false);
-                            return; // User canceled the file dialog
+                          if (newPath) {
+                            setDbPath(newPath);
+                            // Trigger a manual sync right away to confirm connection
+                            setIsSyncing(true);
+                            try {
+                              await ipcRenderer.invoke('trigger-sync');
+                              const time = await ipcRenderer.invoke('get-last-sync-time');
+                              if (time) setLastSync(time);
+                            } catch (err) {
+                              console.error('Manual sync failed', err);
+                            } finally {
+                              setIsSyncing(false);
+                            }
                           }
-                        }
-                        try {
-                          await ipcRenderer.invoke('trigger-sync');
-                        } catch (err) {
-                          console.error('Manual sync failed', err);
-                        } finally {
-                          setIsSyncing(false);
-                        }
-                      }}
-                      disabled={isSyncing}
-                      className="text-xs text-emerald-500 hover:text-white font-medium px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                      {isSyncing ? 'Syncing...' : 'Run Manual Sync'}
-                    </button>
+                        }}
+                        className="text-xs text-amber-500 hover:text-white font-medium px-4 py-2 bg-amber-500/10 hover:bg-amber-500 rounded-lg transition-colors flex items-center gap-2"
+                      >
+                        Reconnect Database
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={async () => {
+                          if (isWebPos) return;
+                          setIsSyncing(true);
+                          setSyncProgress({ percent: 0, message: 'Starting sync...' });
+                          try {
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            // @ts-ignore
+                            const { ipcRenderer } = window.require('electron');
+                            await ipcRenderer.invoke('trigger-sync');
+                          } catch (err) {
+                            console.error('Manual sync failed', err);
+                          } finally {
+                            setIsSyncing(false);
+                          }
+                        }}
+                        disabled={isSyncing || isWebPos}
+                        className="text-xs text-emerald-500 hover:text-white font-medium px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                        {isSyncing ? 'Syncing...' : (isWebPos ? 'Auto (Web)' : 'Run Manual Sync')}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -668,3 +742,4 @@ export default function Done() {
     </div>
   );
 }
+
