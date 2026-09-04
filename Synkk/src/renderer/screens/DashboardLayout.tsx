@@ -92,6 +92,13 @@ export default function DashboardLayout() {
     }
   }, [modules, allowedModules, location.pathname, navigate, currentNavItem]);
 
+  // Persist the last route visited within the Synkk Engine tab
+  useEffect(() => {
+    if (location.pathname.startsWith('/dashboard/synkk')) {
+      localStorage.setItem('synkkLastRoute', location.pathname);
+    }
+  }, [location.pathname]);
+
   const visibleNavItems = allNavItems.filter(item => item.show);
   const isCurrentPermitted = !currentNavItem || currentNavItem.show;
 
@@ -132,7 +139,21 @@ export default function DashboardLayout() {
               return (
                 <button
                   key={item.path}
-                  onClick={() => navigate(item.path)}
+                  onClick={() => {
+                    if (item.path === '/dashboard/synkk') {
+                      if (isActive) {
+                        // Reset to root if clicked again while active
+                        localStorage.removeItem('synkkLastRoute');
+                        navigate(item.path);
+                      } else {
+                        // Restore state
+                        const lastRoute = localStorage.getItem('synkkLastRoute');
+                        navigate(lastRoute || item.path);
+                      }
+                    } else {
+                      navigate(item.path);
+                    }
+                  }}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
                     isActive 
                       ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-inner' 

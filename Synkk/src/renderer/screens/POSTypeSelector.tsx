@@ -42,63 +42,16 @@ const OPTIONS = [
 export default function POSTypeSelector({ posName, setPosName, onSelect, onBack, initialWebPos }: Props) {
   const [selected, setSelected] = useState<'local-app' | 'web-pos' | 'unknown' | null>(initialWebPos ? 'web-pos' : null);
   const [hovering, setHovering] = useState<string | null>(null);
-  const [showUrlInput, setShowUrlInput] = useState(!!initialWebPos);
-  const [url, setUrl] = useState('');
 
   const handleContinue = () => {
     if (selected === 'web-pos') {
-      setShowUrlInput(true);
+      onSelect('web-pos');
     } else if (selected) {
       onSelect(selected);
     }
   };
 
-  const handleSubmitUrl = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!url.trim()) return;
-    let finalUrl = url.trim();
-    if (!finalUrl.startsWith('http')) finalUrl = 'https://' + finalUrl;
-    onSelect('web-pos', finalUrl);
-  };
 
-  if (showUrlInput) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 560, margin: '0 auto', padding: '0 16px', animation: 'fadeSlideUp 0.4s ease' }}>
-        <button onClick={() => setShowUrlInput(false)} style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 6, color: '#7A9490', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, marginBottom: 24, padding: '4px 0', fontFamily: 'inherit' }}>
-          <ChevronLeft size={16} /> Back
-        </button>
-
-        <div className="glass-panel flex flex-col justify-center p-10 rounded-3xl relative overflow-hidden w-full border border-emerald-500/20">
-          <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent opacity-50"></div>
-          <div className="relative z-10">
-            <div className="w-12 h-12 rounded-xl bg-slate-800/80 flex items-center justify-center mb-6 border border-white/5 shadow-lg">
-              <Globe className="w-6 h-6 text-cyan-400" />
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-2 font-sans">Connect web software</h2>
-            <p className="text-sm text-slate-400 mb-8 font-sans">Paste your web POS link. You'll log in on the next screen.</p>
-
-            <form onSubmit={handleSubmitUrl} className="flex flex-col gap-3 w-full">
-              <input
-                type="text"
-                placeholder="https://mypharmacy.pos.com"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                autoFocus
-                className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-5 pr-5 text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all font-sans text-base"
-              />
-              <button
-                type="submit"
-                disabled={!url.trim()}
-                className="w-full py-4 bg-cyan-500/20 hover:bg-cyan-500/40 disabled:opacity-50 text-white rounded-xl transition-colors flex items-center justify-center gap-2 font-semibold"
-              >
-                <ArrowRight className="w-5 h-5" /> Continue
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div
