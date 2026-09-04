@@ -34,10 +34,7 @@ export function updateTrayStatus(status: 'green' | 'amber' | 'red', lastSyncTime
   }
 
   if (status === 'red') {
-    new Notification({
-      title: 'Synkk Sync Error',
-      body: errorDetails || 'Your storefront may not be showing your latest stock. Check your POS connection.',
-    }).show();
+    // Notification removed per user request
   }
 
   updateTrayMenu(lastSyncTime, medicinesCount);

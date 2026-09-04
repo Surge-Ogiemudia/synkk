@@ -241,6 +241,14 @@ if (!gotTheLock) {
   const { startScheduler } = require('./scheduler');
   startScheduler();
 
+  // Start the local bridge for Chrome Extension
+  try {
+    const { startLocalBridge } = require('./bridge');
+    startLocalBridge();
+  } catch (e) {
+    console.error('Failed to start local bridge:', e);
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

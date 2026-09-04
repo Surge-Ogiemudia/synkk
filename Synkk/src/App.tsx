@@ -10,6 +10,7 @@ import GuestAuth from './renderer/screens/GuestAuth';
 import Done from './renderer/screens/Done';
 import BubbleMode from './renderer/screens/BubbleMode';
 import SynkkEngineTab from './renderer/screens/SynkkEngineTab';
+import ExtensionInstall from './renderer/screens/ExtensionInstall';
 
 import DashboardLayout from './renderer/screens/DashboardLayout';
 import GeneralDashboardTab from './renderer/screens/GeneralDashboardTab';
@@ -212,6 +213,7 @@ function AppRoutes() {
             
             {/* Synkk Engine — entire setup flow lives here */}
             <Route path="synkk" element={<div className="w-full max-w-4xl mx-auto p-8"><SynkkEngineTab /></div>} />
+            <Route path="synkk/extension-install" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><ExtensionInstall /></div>} />
             <Route path="synkk/analysis" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><Analysis /></div>} />
             <Route path="synkk/web-scraper" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><WebScraper /></div>} />
             <Route path="synkk/confirmation" element={<div className="w-full max-w-4xl mx-auto px-8 pt-8 pb-16 flex flex-col items-center"><Confirmation /></div>} />
