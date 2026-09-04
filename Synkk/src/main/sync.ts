@@ -443,38 +443,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
       if (!success) {
         const reason = lastErrMessage.split('ALL_TIERS_FAILED:')[1]?.trim() || 'Unknown error';
         console.log(`All automated tiers failed after ${maxAttempts} attempts (${reason}). Triggering CSV fallback...`);
-        await new Promise((resolvePrompt, rejectPrompt) => {
-          const { Notification, dialog, BrowserWindow } = require('electron');
-          if (Notification.isSupported()) {
-            const notif = new Notification({
-              title: 'Synkk Web POS Sync Failed',
-              body: 'All automated sync methods failed. Click here to manually upload your inventory CSV.'
-            });
-            notif.on('click', async () => {
-              const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-              const filePaths = dialog.showOpenDialogSync(win, {
-                title: 'Select Inventory CSV',
-                filters: [{ name: 'CSV', extensions: ['csv'] }],
-                properties: ['openFile']
-              });
-              if (filePaths && filePaths.length > 0) {
-                try {
-                  rawInventory = await extractFromLocalDB(filePaths[0], pairingData.schemaMapping);
-                  syncTier = 5; // Tier 5 is CSV Fallback
-                  resolvePrompt(null);
-                } catch(e) {
-                  rejectPrompt(e);
-                }
-              } else {
-                rejectPrompt(new Error('User cancelled CSV fallback.'));
-              }
-            });
-            notif.on('close', () => rejectPrompt(new Error('CSV fallback notification dismissed.')));
-            notif.show();
-          } else {
-            rejectPrompt(new Error('Notifications not supported. Cannot prompt for CSV fallback.'));
-          }
-        });
+        throw new Error('All automated sync tiers failed.');
       }
     } else if (pairingData.posIdentifier) {
       // Branch 1: Local SQLite DB
@@ -549,32 +518,61 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
       console.log(`Smart Diff: ${updates.length} updates (including ${softDeletedCount} items marked Out of Stock), ${deletes.length} hard deletes.`);
     }
 
-    const payload = {
-      pharmacy_slug: storefrontData.slug,
-      pharmacy_name: storefrontData.name,
-      coordinates: storefrontData.coordinates,
-      updates,
-      deletes,
-      sync_tier: syncTier,
-      app_version: app.getVersion()
-    };
-
-    try {
-      // Show intermediate status since AI classification can take 5-10 seconds
-      broadcastSyncProgress(90, 'Pushing updates to cloud...');
+      broadcastSyncProgress(90, 'Pushing updates to cloud in chunks...');
       updateTrayStatus('yellow', 'Classifying inventory...', updates.length + deletes.length + totalStreamedUpdates);
       
-      // In production, this would be an actual API endpoint with auth tokens
-      // For the MVP, we are POSTing to a placeholder relay route
-      const response = await axios.post('https://www.pharmastackx.com/api/sync', payload, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
-        },
-        timeout: 30000 // Increased from 10s to 30s to allow AI classification to finish
-      });
-      console.log('Successfully pushed to MongoDB via Web Relay!');
-      telemetry.addStep('CLOUD_PUSH', `Pushed ${updates.length} updates and ${deletes.length} deletes to cloud`, true);
+      const CHUNK_SIZE = 500;
+      let lastResponse: any = null;
+      let chunksProcessed = 0;
+      const totalChunks = Math.max(1, Math.ceil(updates.length / CHUNK_SIZE));
+
+      try {
+        if (updates.length === 0 && deletes.length === 0) {
+          lastResponse = await axios.post('https://www.pharmastackx.com/api/sync', {
+            pharmacy_slug: storefrontData.slug,
+            pharmacy_name: storefrontData.name,
+            coordinates: storefrontData.coordinates,
+            updates: [],
+            deletes: [],
+            sync_tier: syncTier,
+            app_version: app.getVersion()
+          }, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
+            },
+            timeout: 30000
+          });
+        }
+
+        for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+          const updateChunk = updates.slice(i, i + CHUNK_SIZE);
+          const payload = {
+            pharmacy_slug: storefrontData.slug,
+            pharmacy_name: storefrontData.name,
+            coordinates: storefrontData.coordinates,
+            updates: updateChunk,
+            deletes: i === 0 ? deletes : [],
+            sync_tier: syncTier,
+            app_version: app.getVersion()
+          };
+
+          lastResponse = await axios.post('https://www.pharmastackx.com/api/sync', payload, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
+            },
+            timeout: 60000 // Give each chunk 60s since it passes through AI
+          });
+          
+          chunksProcessed++;
+          const percent = Math.floor(90 + (chunksProcessed / totalChunks) * 9);
+          broadcastSyncProgress(percent, `Pushed chunk ${chunksProcessed}/${totalChunks}...`);
+        }
+
+        const response = lastResponse;
+        console.log('Successfully pushed to MongoDB via Web Relay!');
+        telemetry.addStep('CLOUD_PUSH', `Pushed ${updates.length} updates and ${deletes.length} deletes to cloud in ${totalChunks} chunks`, true);
       
       if (response.data && response.data.newSlug && response.data.newSlug !== storefrontData.slug) {
         console.log(`Auto-upgrading guest slug from ${storefrontData.slug} to ${response.data.newSlug}`);
@@ -749,13 +747,7 @@ async function extractFromLocalDB(dbPath: string, schema: any): Promise<any[]> {
       const stats = fs.statSync(dbPath);
       const isStale = Date.now() - stats.mtimeMs > 7 * 24 * 60 * 60 * 1000;
       if (isStale) {
-        const { Notification } = require('electron');
-        if (Notification.isSupported()) {
-          new Notification({
-            title: 'Synkk: Action Required',
-            body: "Your inventory CSV file hasn't been updated in over 7 days. Please export a fresh CSV to keep your online storefront accurate!"
-          }).show();
-        }
+        /* 7 days stale notification removed */
       }
 
       const content = fs.readFileSync(dbPath, 'utf8');
@@ -1330,3 +1322,4 @@ async function extractFromWebPOS(url: string, _schema: any, onBatchExtracted?: (
   }
 
 }
+

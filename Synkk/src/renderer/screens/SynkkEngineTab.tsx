@@ -35,22 +35,53 @@ export default function SynkkEngineTab() {
         // @ts-ignore
         const { ipcRenderer } = window.require('electron');
         const pairing = await ipcRenderer.invoke('get-pairing-data');
-        if (pairing && pairing.posIdentifier) {
+        const storefront = await ipcRenderer.invoke('get-storefront-data');
+        
+        let shouldAutoSkip = false;
+
+        // 1. Check local pairing first (fast path)
+        if (pairing && pairing.posIdentifier && pairing.posIdentifier !== 'web-extension') {
+          shouldAutoSkip = true;
+        }
+
+        // 2. Check Cloud State if local pairing is missing or we want to double check Web POS
+        if (!shouldAutoSkip && storefront?.slug) {
+          try {
+            // Check Web POS extension data
+            const res = await fetch(`https://www.psx.ng/api/extension/dashboard-data?pharmacyId=${encodeURIComponent(storefront.slug)}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.networkLogsCount > 0 || (data.pmsInfo && data.pmsInfo.pmsUrl !== 'None')) {
+                await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
+                shouldAutoSkip = true;
+              }
+            }
+
+            // Check Desktop Sync inventory data
+            if (!shouldAutoSkip) {
+              const synkkStatus = await ipcRenderer.invoke('check-synkk-status');
+              if (synkkStatus && synkkStatus.itemCount > 0) {
+                // They have Desktop Sync inventory in the cloud!
+                // We leave pairing as null so Done.tsx knows it's disconnected on this PC
+                shouldAutoSkip = true;
+              }
+            }
+          } catch (e) {
+            console.error("Cloud fetch failed", e);
+          }
+        }
+        
+        if (shouldAutoSkip) {
           setHasCompletedSetup(true);
-          // Navigate to the Done/sync screen within the synkk engine
           navigate('/dashboard/synkk/done', { 
-            state: { 
-              slug: (await ipcRenderer.invoke('get-storefront-data'))?.slug,
-              name: (await ipcRenderer.invoke('get-storefront-data'))?.name,
-              coordinates: (await ipcRenderer.invoke('get-storefront-data'))?.coordinates
-            },
+            state: { slug: storefront?.slug, name: storefront?.name, coordinates: storefront?.coordinates },
             replace: true 
           });
         } else {
           setHasCompletedSetup(false);
         }
       } catch (e) {
-        console.error(e);
+        console.error("Setup Error", e);
         setHasCompletedSetup(false);
       }
     };
@@ -179,13 +210,9 @@ export default function SynkkEngineTab() {
             posName={posNameHint}
             setPosName={setPosNameHint}
             onBack={() => setShowPOSTypeSelector(false)}
-            onSelect={async (type, webUrl) => {
+            onSelect={async (type) => {
               if (type === 'web-pos') {
-                if (webUrl?.trim()) {
-                  let finalUrl = webUrl.trim();
-                  if (!finalUrl.startsWith('http')) finalUrl = 'https://' + finalUrl;
-                  navigate('/dashboard/synkk/web-scraper', { state: { url: finalUrl } });
-                }
+                navigate('/dashboard/synkk/extension-install');
               } else if (type === 'local-app') {
                 // Trigger a deeper re-scan
                 setShowPOSTypeSelector(false);
@@ -271,3 +298,5 @@ export default function SynkkEngineTab() {
     </div>
   );
 }
+
+

@@ -325,6 +325,29 @@ export function setupIpc() {
     }
   });
 
+  ipcMain.handle('export-extension', async () => {
+    try {
+      const sourceDir = path.join(os.homedir(), 'Desktop', 'PST', 'extension');
+      const targetDir = path.join(os.homedir(), 'Desktop', 'Synkk-Extension');
+      
+      if (!fs.existsSync(sourceDir)) {
+        throw new Error(`Extension source folder not found at ${sourceDir}`);
+      }
+      
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      
+      // Copy all files recursively
+      fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
+      
+      return { success: true, path: targetDir };
+    } catch (e: any) {
+      console.error('Failed to copy extension folder:', e.message);
+      return { success: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('open-file-dialog', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -609,10 +632,36 @@ export function setupIpc() {
     return getStore('pairing');
   });
 
+  ipcMain.handle('check-synkk-status', async () => {
+    try {
+      const creds = getStore('psxCredentials') as any;
+      let token = null;
+      if (creds && creds.encToken) {
+        // @ts-ignore
+        const { safeStorage } = require('electron');
+        token = safeStorage.decryptString(Buffer.from(creds.encToken, 'base64'));
+      }
+      
+      const res = await session.defaultSession.fetch('https://www.psx.ng/api/stock/synkk-status', {
+        headers: token ? { 'Cookie': `session_token=${token}` } : {}
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        return data; // { connected, itemCount, lastSync }
+      }
+      console.warn('[CheckSynkkStatus] API returned non-OK status:', res.status);
+      return null;
+    } catch (e) {
+      console.error('[CheckSynkkStatus] Failed:', e);
+      return null;
+    }
+  });
+
 ipcMain.handle('update-csv-path', async (event) => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openFile'],
-      filters: [{ name: 'CSV Files', extensions: ['csv'] }]
+      filters: [{ name: 'Database/CSV Files', extensions: ['db', 'sqlite', 'sqlite3', 'csv'] }]
     });
     if (canceled || filePaths.length === 0) {
       return null;
