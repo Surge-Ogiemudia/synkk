@@ -1088,66 +1088,6 @@ ipcMain.handle('update-csv-path', async (event) => {
     return true;
   });
 
-  // ── Super Admin: Fetch all pharmacy accounts with their allowedModules ──
-  ipcMain.handle('get-admin-pharmacies', async (_event, search: string = '') => {
-    try {
-      const sessionCookie = getStore('session_token') as string | undefined;
-      const headers: Record<string, string> = { 'Accept': 'application/json' };
-      if (sessionCookie) headers['Authorization'] = `Bearer ${sessionCookie}`;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      const res = await session.defaultSession.fetch(
-        `https://www.psx.ng/api/admin/pharmacy-modules?search=${encodeURIComponent(search)}`,
-        { headers, signal: controller.signal }
-      ).finally(() => clearTimeout(timeoutId));
-
-      if (res.ok) {
-        const data = await res.json();
-        return data.pharmacies || [];
-      }
-      console.warn('[AdminModules] Failed to fetch pharmacies:', res.status);
-      return [];
-    } catch (err: any) {
-      console.error('[AdminModules] Error fetching pharmacies:', err.message);
-      return [];
-    }
-  });
-
-  // ── Super Admin: Save allowedModules lock for a specific pharmacy ──
-  ipcMain.handle('save-admin-pharmacy-modules', async (_event, { pharmacySlug, allowedModules }: { pharmacySlug: string; allowedModules: Record<string, boolean> }) => {
-    try {
-      const sessionCookie = getStore('session_token') as string | undefined;
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      };
-      if (sessionCookie) headers['Authorization'] = `Bearer ${sessionCookie}`;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      const res = await session.defaultSession.fetch(
-        'https://www.psx.ng/api/admin/pharmacy-modules',
-        {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify({ pharmacySlug, allowedModules }),
-          signal: controller.signal
-        }
-      ).finally(() => clearTimeout(timeoutId));
-
-      if (res.ok) {
-        console.log(`[AdminModules] Saved allowedModules for ${pharmacySlug}`);
-        return { success: true };
-      }
-      console.warn('[AdminModules] Save failed:', res.status);
-      return { success: false };
-    } catch (err: any) {
-      console.error('[AdminModules] Error saving modules:', err.message);
-      return { success: false };
-    }
-  });
-
   ipcMain.handle('update-lead-status', async (event, id: string, status: string) => {
     const leads = (getStore('leads') as any[]) || [];
     const lead = leads.find(l => l.id === id);
