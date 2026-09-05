@@ -11,8 +11,7 @@ interface NavItem {
   name: string;
   path: string;
   icon: React.ComponentType<{ className?: string }>;
-  moduleKey?: keyof TerminalModules;
-  isAdminOnly?: boolean;
+  moduleKey: keyof TerminalModules;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -24,7 +23,6 @@ const NAV_ITEMS: NavItem[] = [
   { name: 'Source', path: '/dashboard/source', icon: Search, moduleKey: 'source' },
   { name: 'Staff Management', path: '/dashboard/staff', icon: Users, moduleKey: 'staff' },
   { name: 'Subdomain & Social AI', path: '/dashboard/social', icon: Sparkles, moduleKey: 'socialAi' },
-  { name: 'Admin Control Panel', path: '/dashboard/admin', icon: Shield, isAdminOnly: true },
 ];
 
 export default function DashboardLayout() {
@@ -129,12 +127,12 @@ export default function DashboardLayout() {
       <div className="flex-1 relative overflow-x-hidden overflow-y-auto custom-scroll bg-[#050505]">
         {!isCurrentPermitted ? (
           <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4 shadow-inner">
+            <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 mb-4 shadow-inner">
               <Lock className="w-8 h-8" />
             </div>
-            <h2 className="text-xl font-bold text-white mb-2">Module Restricted by Admin</h2>
+            <h2 className="text-xl font-bold text-white mb-2">Module Unavailable</h2>
             <p className="text-sm text-slate-400 max-w-md mb-6">
-              Access to this module has been restricted for your terminal by Super Admin. Contact your administrator to adjust module permissions.
+              This module is not active for this terminal.
             </p>
           </div>
         ) : (
