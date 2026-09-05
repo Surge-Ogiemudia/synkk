@@ -327,11 +327,21 @@ export function setupIpc() {
 
   ipcMain.handle('export-extension', async () => {
     try {
-      const sourceDir = path.join(os.homedir(), 'Desktop', 'PST', 'extension');
+      let sourceDir = path.join(__dirname, '../../extension');
+      if (!fs.existsSync(sourceDir)) {
+        sourceDir = path.join(process.resourcesPath, 'extension');
+      }
+      if (!fs.existsSync(sourceDir)) {
+        sourceDir = path.join(os.homedir(), 'Desktop', 'PST', 'extension');
+      }
+      if (!fs.existsSync(sourceDir)) {
+        sourceDir = path.join(os.homedir(), 'Desktop', 'Synkk-Extension');
+      }
+      
       const targetDir = path.join(os.homedir(), 'Desktop', 'Synkk-Extension');
       
       if (!fs.existsSync(sourceDir)) {
-        throw new Error(`Extension source folder not found at ${sourceDir}`);
+        throw new Error(`Extension source folder not found`);
       }
       
       if (!fs.existsSync(targetDir)) {
@@ -339,7 +349,9 @@ export function setupIpc() {
       }
       
       // Copy all files recursively
-      fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
+      if (sourceDir !== targetDir) {
+        fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
+      }
       
       return { success: true, path: targetDir };
     } catch (e: any) {
