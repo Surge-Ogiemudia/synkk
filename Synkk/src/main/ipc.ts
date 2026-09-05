@@ -1119,15 +1119,16 @@ ipcMain.handle('update-csv-path', async (event) => {
   ipcMain.on('open-checkout-window', async (event, url) => {
     const parentWin = BrowserWindow.fromWebContents(event.sender);
     const checkoutWin = new BrowserWindow({
-      width: 1000,
-      height: 800,
+      width: 520,
+      height: 750,
       parent: parentWin || undefined,
       modal: !!parentWin,
       show: false,
-      title: 'Secure Checkout',
+      title: 'PharmaStackX B2B Checkout',
       webPreferences: {
         nodeIntegration: false,
-        contextIsolation: true
+        contextIsolation: true,
+        partition: 'persist:pos'
       }
     });
 

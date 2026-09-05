@@ -3,11 +3,24 @@ import { useSearchParams } from 'react-router-dom';
 import OrdersTab from './OrdersTab';
 import LeadsTab from './LeadsTab';
 
-export default function OrdersAndLeadsTab({ slug }: { slug: string }) {
+export default function OrdersAndLeadsTab({ slug }: { slug?: string }) {
+  const [activeSlug, setActiveSlug] = useState(slug && slug !== 'main' ? slug : '');
   const [searchParams] = useSearchParams();
   const [activeSubTab, setActiveSubTab] = useState<'orders' | 'leads'>(
     searchParams.get('tab') === 'leads' ? 'leads' : 'orders'
   );
+
+  useEffect(() => {
+    if (!activeSlug) {
+      try {
+        // @ts-ignore
+        const { ipcRenderer } = window.require('electron');
+        ipcRenderer.invoke('get-storefront-data').then((data: any) => {
+          if (data && data.slug) setActiveSlug(data.slug);
+        });
+      } catch (e) {}
+    }
+  }, [activeSlug]);
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
@@ -44,7 +57,7 @@ export default function OrdersAndLeadsTab({ slug }: { slug: string }) {
 
       {/* Content Area */}
       <div className="flex-1 w-full bg-slate-900/30 border border-slate-800/50 rounded-2xl p-6 shadow-inner overflow-hidden flex flex-col">
-        {activeSubTab === 'orders' ? <OrdersTab slug={slug} /> : <LeadsTab slug={slug} />}
+        {activeSubTab === 'orders' ? <OrdersTab slug={activeSlug} /> : <LeadsTab slug={activeSlug} />}
       </div>
     </div>
   );
