@@ -219,12 +219,12 @@ export default function DashboardLayout() {
         <div className="relative z-10 w-full h-full flex flex-col">
           {!isCurrentPermitted ? (
             <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
-              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4 shadow-inner">
+              <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 mb-4 shadow-inner">
                 <Lock className="w-8 h-8" />
               </div>
-              <h2 className="text-xl font-bold text-white mb-2">Module Restricted by Admin</h2>
+              <h2 className="text-xl font-bold text-white mb-2">Module Unavailable</h2>
               <p className="text-sm text-slate-400 max-w-md mb-6">
-                Access to this module has been restricted for your pharmacy terminal by Super Admin. Please contact your administrator to adjust module permissions.
+                This module is not active for this terminal.
               </p>
             </div>
           ) : (
@@ -270,24 +270,17 @@ export default function DashboardLayout() {
                   staff: 'Staff Management',
                   emr: 'EMR Terminal',
                   synkk: 'Synkk Engine'
-                }).map(([key, label]) => {
-                  const isLockedByAdmin = allowedModules && allowedModules[key] === false;
+                })
+                .filter(([key]) => !allowedModules || allowedModules[key] !== false)
+                .map(([key, label]) => {
                   return (
-                    <label key={key} className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isLockedByAdmin ? 'bg-slate-900/60 border-slate-800 opacity-60 cursor-not-allowed' : 'bg-slate-800/40 border-slate-700/50 cursor-pointer hover:bg-slate-800/80 hover:border-emerald-500/50 group'}`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-medium ${isLockedByAdmin ? 'text-slate-500 line-through' : 'text-slate-300 group-hover:text-white'} transition-colors`}>{label}</span>
-                        {isLockedByAdmin && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                            <Lock className="w-3 h-3" /> Admin Restricted
-                          </span>
-                        )}
-                      </div>
+                    <label key={key} className="flex items-center justify-between p-4 rounded-xl border transition-all bg-slate-800/40 border-slate-700/50 cursor-pointer hover:bg-slate-800/80 hover:border-emerald-500/50 group">
+                      <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">{label}</span>
                       <div className="relative inline-block w-10 h-6 flex-shrink-0">
                         <input 
                           type="checkbox" 
                           className="peer sr-only" 
-                          disabled={isLockedByAdmin}
-                          checked={!isLockedByAdmin && (modules as any)[key] !== false}
+                          checked={(modules as any)[key] !== false}
                           onChange={(e) => saveModules({ ...modules, [key]: e.target.checked })}
                         />
                         <div className="w-10 h-6 bg-slate-700 rounded-full peer-checked:bg-emerald-500 transition-colors"></div>
