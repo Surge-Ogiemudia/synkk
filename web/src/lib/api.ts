@@ -1,6 +1,6 @@
 import { auth } from './auth';
 
-const API_BASE = 'https://www.pharmastackx.com';
+const API_BASE = 'https://www.psx.ng';
 
 export async function fetchPendingOrders(slug: string) {
   const res = await fetch(`${API_BASE}/api/orders/pending?slug=${encodeURIComponent(slug)}`);

@@ -11,6 +11,9 @@ export default function SourceTab() {
   const [hasSearched, setHasSearched] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [checkoutItem, setCheckoutItem] = useState<any | null>(null);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [orderSuccessMsg, setOrderSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -31,6 +34,20 @@ export default function SourceTab() {
     return () => clearTimeout(timer);
   }, [query, hasSearched]);
 
+  // Listen for iframe checkout messages if dispatched
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data && (e.data.type === 'PSX_ORDER_DONE' || e.data === 'PSX_CHECKOUT_COMPLETED')) {
+        setCheckoutUrl(null);
+        setCheckoutItem(null);
+        setOrderSuccessMsg('Order placed successfully! Track its real-time status in Online Orders & Leads.');
+        setTimeout(() => setOrderSuccessMsg(null), 8000);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   const handleSearch = async (e: React.FormEvent | string) => {
     if (typeof e !== 'string') e.preventDefault();
     const searchQuery = typeof e === 'string' ? e : query;
@@ -43,7 +60,7 @@ export default function SourceTab() {
     try {
       const data = await searchSource(searchQuery, slug);
       if (data.success) {
-        setResults(data.results);
+        setResults(data.results || []);
       } else {
         setResults([]);
       }
@@ -55,15 +72,41 @@ export default function SourceTab() {
     }
   };
 
+  const handleOpenCheckout = (item: any) => {
+    const seller = item.pharmacy.slug || item.pharmacy.name;
+    const url = `https://www.psx.ng/?view=confirmOrder&action=checkout&item=${encodeURIComponent(item.itemName)}&price=${item.price || 0}&seller=${encodeURIComponent(seller)}&buyer=${encodeURIComponent(slug)}`;
+    setCheckoutItem(item);
+    setCheckoutUrl(url);
+  };
+
   return (
-    <div className="flex flex-col w-full h-full p-6">
+    <div className="flex flex-col w-full h-full p-6 relative">
+      
+      {/* Descriptive Header */}
       <div className="mb-6">
         <h2 className="text-xl font-bold text-white mb-2">B2B Sourcing</h2>
         <p className="text-slate-400 text-sm">
-          To help patients check which nearest pharmacy has the medicine they need.
+          Check neighboring pharmacy stock in real-time and source out-of-stock medicines instantly.
         </p>
       </div>
 
+      {/* Success Notification Banner */}
+      {orderSuccessMsg && (
+        <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-emerald-300 text-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-3">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>{orderSuccessMsg}</span>
+          </div>
+          <button 
+            onClick={() => setOrderSuccessMsg(null)}
+            className="text-emerald-400 hover:text-white text-xs font-semibold px-2 py-1 rounded bg-emerald-900/40"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Search Header */}
       <form onSubmit={handleSearch} className="relative mb-6">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <Search className="h-5 w-5 text-slate-400" />
@@ -90,6 +133,7 @@ export default function SourceTab() {
           {loading ? 'Searching...' : 'Find'}
         </button>
 
+        {/* Autocomplete Dropdown */}
         {showSuggestions && suggestions.length > 0 && (
           <div className="absolute z-10 w-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-lg overflow-hidden">
             {suggestions.map((suggestion, idx) => (
@@ -108,6 +152,7 @@ export default function SourceTab() {
         )}
       </form>
 
+      {/* Results Area */}
       <div className="flex-1 overflow-y-auto pr-2 pb-10 space-y-4 custom-scroll">
         {!hasSearched && (
           <div className="flex flex-col items-center justify-center h-full text-slate-500 space-y-3">
@@ -125,6 +170,7 @@ export default function SourceTab() {
 
         {hasSearched && !loading && results.map((item, idx) => (
           <div key={idx} className="bg-slate-800/80 border border-slate-700 rounded-xl p-4 flex flex-col relative overflow-hidden group hover:border-emerald-500/50 transition-colors">
+            
             <div className="flex justify-between items-start mb-2">
               <h4 className="text-white font-medium text-base truncate pr-2">{item.itemName}</h4>
               <span className="text-emerald-400 font-bold whitespace-nowrap">₦{item.price?.toLocaleString() || 'N/A'}</span>
@@ -147,7 +193,7 @@ export default function SourceTab() {
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-start gap-2 text-xs text-slate-400">
                     <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-500" />
-                    <span className="leading-tight max-w-[200px]">{item.pharmacy.businessAddress || item.pharmacy.state || 'Address hidden'}</span>
+                    <span className="leading-tight max-w-[280px]">{item.pharmacy.businessAddress || item.pharmacy.state || 'Address not listed'}</span>
                   </div>
 
                   <a
@@ -160,14 +206,7 @@ export default function SourceTab() {
                 </div>
 
                 <button
-                  onClick={() => {
-                    const url = `https://www.pharmastackx.com/?view=confirmOrder&action=checkout&item=${encodeURIComponent(item.itemName)}&price=${item.price || 0}&seller=${encodeURIComponent(item.pharmacy.slug || item.pharmacy.name)}&buyer=${encodeURIComponent(slug)}`;
-                    // Desktop opened this in a dedicated Electron BrowserWindow with an
-                    // auto-login helper. On the web there's no such privileged window —
-                    // a plain new tab is the equivalent; the user completes checkout
-                    // there themselves.
-                    window.open(url, '_blank', 'noopener,noreferrer');
-                  }}
+                  onClick={() => handleOpenCheckout(item)}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-1.5 transition-colors shadow-lg shadow-emerald-900/20"
                 >
                   <ShoppingCart className="w-3.5 h-3.5" />
@@ -178,6 +217,60 @@ export default function SourceTab() {
           </div>
         ))}
       </div>
+
+      {/* In-App B2B Checkout Drawer */}
+      {checkoutUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-xl h-full bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+            {/* Drawer Header */}
+            <div className="p-4 border-b border-slate-800 bg-slate-950 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <ShoppingCart className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white leading-tight truncate max-w-[340px]">{checkoutItem?.itemName}</h3>
+                  <p className="text-xs text-slate-400">
+                    Sourcing from <span className="text-emerald-400 font-semibold">{checkoutItem?.pharmacy?.name}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => {
+                    window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
+                  }}
+                  title="Open in separate tab"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-xs"
+                >
+                  ↗
+                </button>
+                <button 
+                  onClick={() => {
+                    setCheckoutUrl(null);
+                    setCheckoutItem(null);
+                  }}
+                  className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-sm font-bold transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* In-App Authenticated Iframe */}
+            <div className="flex-1 w-full bg-white relative">
+              <iframe
+                src={checkoutUrl}
+                title="B2B Checkout"
+                className="w-full h-full border-0"
+                allow="payment"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -206,8 +206,8 @@ function AppRoutes() {
             <Route path="social" element={<SocialMediaTab />} />
             <Route path="pos" element={<div />} />
             <Route path="dispensary" element={<div />} />
-            <Route path="orders" element={<div className="w-full max-w-4xl mx-auto p-4 h-full"><OrdersAndLeadsTab slug="main" /></div>} />
-            <Route path="source" element={<div className="w-full max-w-4xl mx-auto p-8"><SourceTab slug="main" /></div>} />
+            <Route path="orders" element={<div className="w-full max-w-4xl mx-auto p-4 h-full"><OrdersAndLeadsTab /></div>} />
+            <Route path="source" element={<div className="w-full max-w-4xl mx-auto p-8"><SourceTab /></div>} />
             <Route path="staff" element={<StaffTab />} />
             <Route path="emr" element={<div />} />
             
