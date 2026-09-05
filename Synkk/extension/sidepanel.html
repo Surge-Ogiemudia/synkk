@@ -3,58 +3,292 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PharmastackX Sourcing Cockpit</title>
+  <title>PharmastackX</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0b0f17;
+      --surface: #111827;
+      --surface-card: #161f30;
+      --surface2: #1e293b;
+      --border: rgba(255, 255, 255, 0.08);
+      --accent: #00d4aa;
+      --accent-hover: #00b894;
+      --accent-glow: rgba(0, 212, 170, 0.15);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --red: #ef4444;
+      --green: #10b981;
+      --green-bg: rgba(16, 185, 129, 0.12);
+    }
     html, body {
       width: 100%;
       height: 100%;
       margin: 0;
       padding: 0;
-      background: #0b0f17;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 13px;
       overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
+    .app-root {
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    /* IFRAME COCKPIT VIEW */
     #appFrame {
       width: 100%;
       height: 100%;
       border: none;
-      display: block;
-      background: #0b0f17;
+      display: none;
+      background: var(--bg);
     }
+    #appFrame.active {
+      display: block;
+    }
+
     #loadingOverlay {
       position: absolute;
       inset: 0;
-      background: #0b0f17;
+      background: var(--bg);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       gap: 12px;
-      color: #94a3b8;
+      color: var(--text-muted);
       font-size: 12px;
       transition: opacity 0.3s ease-out;
-      z-index: 10;
+      z-index: 50;
     }
     .spinner {
       width: 24px;
       height: 24px;
       border: 2px solid rgba(0, 212, 170, 0.2);
-      border-top-color: #00d4aa;
+      border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    /* SETUP CONTAINER */
+    #setupContainer {
+      display: none;
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
+      flex-direction: column;
+      background: var(--bg);
+    }
+    #setupContainer.active {
+      display: flex;
+    }
+
+    .setup-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .setup-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #00d4aa 0%, #0284c7 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 13px;
+      color: #0b0f17;
+    }
+    .setup-meta h3 { font-size: 13px; font-weight: 700; }
+    .setup-meta p { font-size: 11px; color: var(--text-muted); }
+
+    .setup-body {
+      padding: 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .step-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      opacity: 0.45;
+      pointer-events: none;
+      transition: all 0.25s;
+    }
+    .step-card.active {
+      opacity: 1;
+      pointer-events: auto;
+      border-color: rgba(0, 212, 170, 0.4);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    .step-card.completed {
+      opacity: 0.8;
+      border-color: var(--green);
+    }
+    .step-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .step-badge {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--surface2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .step-card.active .step-badge {
+      background: var(--accent);
+      color: #0b0f17;
+    }
+    .step-card.completed .step-badge {
+      background: var(--green);
+      color: #fff;
+    }
+    .step-title {
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .step-desc {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .form-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 12px;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus { border-color: var(--accent); }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #0b0f17;
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+    }
+    .feed-pill {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 11px;
+      font-family: monospace;
+      color: var(--accent);
+      word-break: break-all;
+    }
   </style>
 </head>
 <body>
-  <div id="loadingOverlay">
-    <div class="spinner"></div>
-    <span>Connecting to PharmastackX Cockpit...</span>
+  <div class="app-root">
+    
+    <!-- LOADING SPINNER -->
+    <div id="loadingOverlay">
+      <div class="spinner"></div>
+      <span id="loadingText">Connecting to PharmastackX...</span>
+    </div>
+
+    <!-- VIEW 1: HOSTED COCKPIT (IFRAME) -->
+    <iframe id="appFrame" src="about:blank" allow="clipboard-read; clipboard-write;"></iframe>
+
+    <!-- VIEW 2: SETUP & AUTH WIZARD (LOCAL SHELL) -->
+    <div id="setupContainer">
+      <div class="setup-header">
+        <div class="setup-avatar" id="setupAvatar">PSX</div>
+        <div class="setup-meta">
+          <h3 id="setupTitle">PharmastackX Terminal</h3>
+          <p id="setupSub">Point of Sale Connection</p>
+        </div>
+      </div>
+
+      <div class="setup-body">
+        
+        <!-- STEP AUTH: Login -->
+        <div id="stepAuth" class="step-card active">
+          <div class="step-top">
+            <div class="step-badge">🔑</div>
+            <div class="step-title">Sign In to Pharmacy</div>
+          </div>
+          <p class="step-desc">Enter your pharmacy login credentials to link this POS terminal.</p>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <input type="email" id="authEmail" class="form-input" placeholder="Pharmacy Email" />
+            <input type="password" id="authPassword" class="form-input" placeholder="Password" />
+            <input type="text" id="authTerminalName" class="form-input" placeholder="Till Name (e.g. Counter 1, Till 2)" />
+            <button id="btnLogin" class="btn btn-primary" style="margin-top: 4px;">Sign In</button>
+            <div id="authAlert" style="display:none; color: var(--red); font-size: 11px;"></div>
+          </div>
+        </div>
+
+        <!-- STEP 1: Link POS URL -->
+        <div id="step1" class="step-card">
+          <div class="step-top">
+            <div class="step-badge">1</div>
+            <div class="step-title">Link POS Portal</div>
+          </div>
+          <p class="step-desc">Open a tab to your Web POS / PMS portal. We will automatically detect the active URL.</p>
+          <div id="urlFeed" class="feed-pill" style="display:none; margin-bottom: 4px;"></div>
+          <button id="btnConfirmURL" class="btn btn-primary">Yes, this is my POS</button>
+        </div>
+
+        <!-- STEP 2: Scan Inventory Table -->
+        <div id="step2" class="step-card">
+          <div class="step-top">
+            <div class="step-badge">2</div>
+            <div class="step-title">Sync Inventory</div>
+          </div>
+          <p class="step-desc">Navigate to your POS Products or Inventory table to capture live catalog.</p>
+          <button id="btnScanInventory" class="btn btn-primary">Scan Page for Catalog</button>
+          <div id="scanStatus" style="display:none; font-size: 11.5px; color: var(--green);"></div>
+          <button id="btnConfirmInventory" class="btn btn-primary" style="display:none;">Confirm & Open Sourcing Cockpit →</button>
+        </div>
+
+      </div>
+    </div>
+
   </div>
-  <iframe id="appFrame" src="about:blank" allow="clipboard-read; clipboard-write;"></iframe>
+
   <script src="sidepanel.js"></script>
 </body>
 </html>
