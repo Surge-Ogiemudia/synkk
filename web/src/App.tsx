@@ -10,6 +10,7 @@ import StaffTab from '@/screens/tabs/StaffTab';
 import OrdersAndLeadsTab from '@/screens/tabs/OrdersAndLeadsTab';
 import SourceTab from '@/screens/tabs/SourceTab';
 import SocialMediaTab from '@/screens/tabs/SocialMediaTab';
+import ExtensionSidepanel from '@/screens/ExtensionSidepanel';
 import { auth } from '@/lib/auth';
 
 function RequireSession({ children }: { children: React.ReactElement }) {
@@ -31,6 +32,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<RootRoute />} />
+        <Route path="/extension" element={<ExtensionSidepanel />} />
+        <Route path="/extension/sidepanel" element={<ExtensionSidepanel />} />
         <Route
           path="/dashboard"
           element={
