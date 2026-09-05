@@ -55,6 +55,12 @@ document.addEventListener("DOMContentLoaded", () => {
         window.location.reload();
       });
     }
+
+    if (event.data && event.data.type === "EXTENSION_RELINK_POS") {
+      chrome.storage.local.remove(["activePMSMetadata", "setupComplete"], () => {
+        window.location.reload();
+      });
+    }
   });
 
   // Listen to background sync updates
