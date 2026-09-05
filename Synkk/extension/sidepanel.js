@@ -1,4 +1,4 @@
-﻿document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", () => {
   const appFrame = document.getElementById("appFrame");
   const loadingOverlay = document.getElementById("loadingOverlay");
 
@@ -47,6 +47,12 @@
             syncCount: res.lastInventoryCount || 0
           }, "*");
         });
+      });
+    }
+
+    if (event.data && event.data.type === "EXTENSION_LOGOUT") {
+      chrome.storage.local.remove(["currentUser", "currentPharmacy", "setupComplete", "activePMSMetadata"], () => {
+        window.location.reload();
       });
     }
   });
