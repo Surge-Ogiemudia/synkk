@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CheckCircle2, ExternalLink, Activity, Package, Search, Download, AlertTriangle, RefreshCw, WifiOff, LogOut } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Activity, Package, Search, Download, AlertTriangle, RefreshCw, WifiOff, LogOut, Database } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import QRCode from 'react-qr-code';
 import Pusher from 'pusher-js';
@@ -18,6 +18,9 @@ export default function Done() {
   const [syncFreq, setSyncFreq] = React.useState('15m');
   const [isWebPos, setIsWebPos] = React.useState(false);
   const [dbPath, setDbPath] = React.useState<string | null>(null);
+  const [isMissingLocalDb, setIsMissingLocalDb] = React.useState(false);
+  const [isLocatingDb, setIsLocatingDb] = React.useState(false);
+  const [discoveredDbModal, setDiscoveredDbModal] = React.useState<{ open: boolean; path: string; name: string; schemaMapping: any; itemCount?: number } | null>(null);
   const [lastSync, setLastSync] = React.useState<string | null>(null);
   const [cloudConnected, setCloudConnected] = React.useState(false);
   const [syncError, setSyncError] = React.useState<{ code: string; userMessage: string; severity: string; timestamp?: string } | null>(null);
@@ -207,6 +210,8 @@ export default function Done() {
         setIsWebPos(false);
         const activeLocalDb = (pairing?.posIdentifier && pairing.posIdentifier !== 'desktop-db' && pairing.posIdentifier !== 'web-extension') ? pairing.posIdentifier : null;
         setDbPath(activeLocalDb);
+        const exists = await ipcRenderer.invoke('check-pos-exists');
+        setIsMissingLocalDb(!activeLocalDb || !exists);
         const time = await ipcRenderer.invoke('get-last-sync-time');
         if (time) setLastSync(time);
       }
@@ -341,9 +346,151 @@ export default function Done() {
     img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
   };
 
+  const handleLocateAndSync = async () => {
+    setIsLocatingDb(true);
+    // @ts-ignore
+    const { ipcRenderer } = window.require('electron');
+    try {
+      const res = await ipcRenderer.invoke('auto-locate-pos-db');
+      if (res && res.found && res.path) {
+        setDiscoveredDbModal({
+          open: true,
+          path: res.path,
+          name: res.name || 'VirtualRx POS',
+          schemaMapping: res.schemaMapping,
+          itemCount: res.itemCount
+        });
+      } else {
+        // Fallback: file browser dialog
+        const pickedPath = await ipcRenderer.invoke('update-csv-path');
+        if (pickedPath) {
+          setDbPath(pickedPath);
+          setIsMissingLocalDb(false);
+          setIsSyncing(true);
+          try {
+            await ipcRenderer.invoke('trigger-sync', 'manual');
+          } catch (e) {
+            console.error(e);
+          } finally {
+            setIsSyncing(false);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error('Auto-locate failed:', e);
+    } finally {
+      setIsLocatingDb(false);
+    }
+  };
+
+  const handleConfirmDiscoveredDb = async () => {
+    if (!discoveredDbModal?.path) return;
+    setIsSyncing(true);
+    // @ts-ignore
+    const { ipcRenderer } = window.require('electron');
+    try {
+      await ipcRenderer.invoke('confirm-and-pair-db', {
+        filePath: discoveredDbModal.path,
+        schemaMapping: discoveredDbModal.schemaMapping,
+        name: discoveredDbModal.name
+      });
+      setDbPath(discoveredDbModal.path);
+      setIsMissingLocalDb(false);
+      setDiscoveredDbModal(null);
+
+      // Trigger sync immediately!
+      setSyncProgress({ percent: 0, message: 'Starting sync...' });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await ipcRenderer.invoke('trigger-sync', 'manual');
+    } catch (e) {
+      console.error('Confirm and sync error:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleBrowseDifferentDb = async () => {
+    // @ts-ignore
+    const { ipcRenderer } = window.require('electron');
+    const pickedPath = await ipcRenderer.invoke('update-csv-path');
+    if (pickedPath) {
+      setDbPath(pickedPath);
+      setIsMissingLocalDb(false);
+      setDiscoveredDbModal(null);
+      setIsSyncing(true);
+      try {
+        await ipcRenderer.invoke('trigger-sync', 'manual');
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
+  };
+
   return (
     <div className="flex flex-col items-center w-full max-w-6xl px-6 pt-4 pb-8 relative mx-auto">
       
+      {/* Discovered POS Database Confirmation Modal */}
+      {discoveredDbModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-6 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-2xl w-full max-w-lg p-6 shadow-2xl flex flex-col text-left relative">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400">
+                <Database className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">
+                  POS Database Located
+                </h2>
+                <p className="text-xs text-slate-400">
+                  {discoveredDbModal.name || 'Desktop POS'} discovered on this device
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-300 mb-4 leading-relaxed">
+              Synkk identified your local POS database on this computer. Confirm below to connect and sync your inventory now.
+            </p>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 mb-6 font-mono text-xs text-slate-300 break-all flex flex-col gap-1">
+              <span className="text-[10px] text-amber-400 font-sans uppercase font-bold tracking-wider">Detected Database Path</span>
+              <span className="text-emerald-400 select-all">{discoveredDbModal.path}</span>
+              {discoveredDbModal.itemCount ? (
+                <span className="text-[11px] text-slate-400 mt-1">
+                  Ready to sync ~<strong className="text-white">{discoveredDbModal.itemCount.toLocaleString()}</strong> items
+                </span>
+              ) : null}
+            </div>
+
+            <div className="flex items-center gap-3 w-full">
+              <button 
+                onClick={handleConfirmDiscoveredDb}
+                disabled={isSyncing}
+                className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-emerald-950/50 transition flex items-center justify-center gap-2"
+              >
+                {isSyncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {isSyncing ? 'Connecting & Syncing...' : 'Confirm & Sync'}
+              </button>
+
+              <button 
+                onClick={handleBrowseDifferentDb}
+                className="py-3 px-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl text-sm font-medium transition"
+              >
+                Browse Manually
+              </button>
+            </div>
+            
+            <button 
+              onClick={() => setDiscoveredDbModal(null)}
+              className="mt-3 text-center text-xs text-slate-500 hover:text-slate-400 transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Persistent Full-Screen Modal */}
       {pendingAlert && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-6 animate-in fade-in duration-200">
@@ -457,6 +604,10 @@ export default function Done() {
                         <span className="w-2 h-2 rounded-full bg-amber-500"></span> Awaiting Sync
                       </span>
                     )
+                  ) : isMissingLocalDb ? (
+                    <span className="text-xs text-amber-400 font-medium flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Database Unlinked
+                    </span>
                   ) : (dbPath || cloudConnected) ? (
                     <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Active
@@ -523,30 +674,14 @@ export default function Done() {
                         <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                         {isSyncing ? 'Refreshing...' : 'Refresh Status'}
                       </button>
-                    ) : (!dbPath && !cloudConnected) ? (
+                    ) : isMissingLocalDb ? (
                       <button 
-                        onClick={async () => {
-                          // @ts-ignore
-                          const { ipcRenderer } = window.require('electron');
-                          const newPath = await ipcRenderer.invoke('update-csv-path');
-                          if (newPath) {
-                            setDbPath(newPath);
-                            // Trigger a manual sync right away to confirm connection
-                            setIsSyncing(true);
-                            try {
-                              await ipcRenderer.invoke('trigger-sync');
-                              const time = await ipcRenderer.invoke('get-last-sync-time');
-                              if (time) setLastSync(time);
-                            } catch (err) {
-                              console.error('Manual sync failed', err);
-                            } finally {
-                              setIsSyncing(false);
-                            }
-                          }
-                        }}
-                        className="text-xs text-amber-500 hover:text-white font-medium px-4 py-2 bg-amber-500/10 hover:bg-amber-500 rounded-lg transition-colors flex items-center gap-2"
+                        onClick={handleLocateAndSync}
+                        disabled={isLocatingDb || isSyncing}
+                        className="text-xs text-amber-400 hover:text-white font-medium px-4 py-2 bg-amber-500/10 hover:bg-amber-500 border border-amber-500/30 rounded-lg transition-all flex items-center gap-2 shadow-lg shadow-amber-950/20 disabled:opacity-50"
                       >
-                        Reconnect Database
+                        {isLocatingDb ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                        {isLocatingDb ? 'Searching for POS Database...' : 'Run Manual Sync'}
                       </button>
                     ) : (
                       <button 
@@ -569,7 +704,7 @@ export default function Done() {
                         className="text-xs text-emerald-500 hover:text-white font-medium px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                        {isSyncing ? 'Syncing...' : (isWebPos ? 'Auto (Web)' : 'Run Manual Sync')}
+                        {isSyncing ? 'Syncing...' : 'Run Manual Sync'}
                       </button>
                     )}
                   </div>

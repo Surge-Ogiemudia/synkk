@@ -689,6 +689,129 @@ export function setupIpc() {
     return fs.existsSync(pairing.posIdentifier);
   });
 
+  ipcMain.handle('auto-locate-pos-db', async () => {
+    try {
+      const candidates: string[] = [];
+
+      // 1. Primary candidate paths (VirtualRx / standard POS database paths)
+      const primaryLocations = [
+        path.join(process.env.APPDATA || '', 'virtualrx', 'database.db'),
+        path.join(process.env.APPDATA || '', 'VirtualRx', 'database.db'),
+        path.join(process.env.LOCALAPPDATA || '', 'virtualrx', 'database.db'),
+        path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'virtualrx', 'database.db'),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'virtualrx', 'database.db'),
+      ];
+
+      for (const p of primaryLocations) {
+        if (fs.existsSync(p) && !candidates.includes(p)) {
+          candidates.push(p);
+        }
+      }
+
+      // 2. Scan folders in APPDATA / LOCALAPPDATA for POS databases if primary wasn't found
+      const searchBases = [
+        path.join(process.env.APPDATA || '', 'virtualrx'),
+        path.join(process.env.APPDATA || '', 'VirtualRx'),
+        path.join(process.env.LOCALAPPDATA || '', 'Programs'),
+      ];
+
+      for (const base of searchBases) {
+        if (fs.existsSync(base)) {
+          try {
+            const files = processWatcher.deepHuntForDatabase(base);
+            for (const f of files) {
+              if (!candidates.includes(f)) candidates.push(f);
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 3. Inspect candidate databases with better-sqlite3
+      const Database = require('better-sqlite3');
+      for (const candidatePath of candidates) {
+        try {
+          const db = new Database(candidatePath, { readonly: true, fileMustExist: true });
+          const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().map((t: any) => t.name);
+          
+          const productTable = tables.find((t: string) => /products|items|inventory|medicines|drugs|stock/i.test(t)) || tables[0];
+          
+          if (productTable) {
+            const cols = db.prepare(`PRAGMA table_info("${productTable}")`).all().map((c: any) => c.name);
+            const nameCol = cols.find((c: string) => /name|item_name|product_name|title|description/i.test(c)) || cols[1] || cols[0];
+            const qtyCol = cols.find((c: string) => /qty|quantity|stock|current_stock|balance/i.test(c)) || 'qty';
+            const priceCol = cols.find((c: string) => /price|amount|unit_price|cost|selling_price/i.test(c)) || 'price';
+            const expiryCol = cols.find((c: string) => /exp|expiry|expiry_date|exp_date/i.test(c)) || 'expiry_date';
+            const imageCol = cols.find((c: string) => /image|photo/i.test(c)) || null;
+
+            let totalCount = 0;
+            try {
+              const countRow = db.prepare(`SELECT COUNT(*) as total FROM "${productTable}"`).get() as any;
+              totalCount = countRow?.total || 0;
+            } catch (_) {}
+
+            db.close();
+
+            const isVirtualRx = candidatePath.toLowerCase().includes('virtualrx');
+            const friendlyName = isVirtualRx ? 'VirtualRx POS' : `${path.parse(candidatePath).name} POS`;
+
+            return {
+              found: true,
+              path: candidatePath,
+              name: friendlyName,
+              itemCount: totalCount,
+              schemaMapping: {
+                tableName: productTable,
+                nameCol,
+                qtyCol,
+                priceCol,
+                expiryCol,
+                brandCol: null,
+                imageCol
+              }
+            };
+          }
+          db.close();
+        } catch (dbErr) {
+          console.warn(`[AutoLocate] Could not inspect candidate ${candidatePath}:`, dbErr);
+        }
+      }
+
+      return { found: false };
+    } catch (err: any) {
+      console.error('[AutoLocate] Error:', err);
+      return { found: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('confirm-and-pair-db', async (_event, payload: any) => {
+    try {
+      const currentPairing = {
+        posIdentifier: payload.filePath,
+        schemaMapping: payload.schemaMapping || {
+          tableName: 'products',
+          nameCol: 'name',
+          qtyCol: 'qty',
+          priceCol: 'price',
+          expiryCol: 'expiry_date',
+          brandCol: null,
+          imageCol: 'image'
+        },
+        connectionType: 'desktop',
+        name: payload.name || 'Desktop POS'
+      };
+
+      setStore('pairing', currentPairing);
+      const sf = getStore('storefront') as any;
+      if (sf?.slug) {
+        setStore(`pairing_${sf.slug}`, currentPairing);
+      }
+      setStore('last_known_desktop_pairing', currentPairing);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
   ipcMain.handle('check-synkk-status', async () => {
     try {
       const creds = getStore('psxCredentials') as any;
