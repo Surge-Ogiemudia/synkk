@@ -37,44 +37,39 @@ export default function SynkkEngineTab() {
         const pairing = await ipcRenderer.invoke('get-pairing-data');
         const storefront = await ipcRenderer.invoke('get-storefront-data');
         
+        // 1. Check if we already have a confirmed, existing local POS on this PC
+        const hasValidLocalPos = await ipcRenderer.invoke('check-pos-exists');
+        
         let shouldAutoSkip = false;
 
-        // 1. Check local pairing first (fast path)
-        if (pairing && pairing.posIdentifier && pairing.posIdentifier !== 'web-extension') {
+        // 2. If we already have a confirmed existing file on this PC, we can auto-skip directly
+        if (hasValidLocalPos) {
           shouldAutoSkip = true;
-        }
-
-        // 2. Check Cloud State if local pairing is missing or we want to double check Web POS
-        if (!shouldAutoSkip && storefront?.slug) {
+        } else if (storefront?.slug) {
           try {
             // Check cloud synkk-status first to honor persistent posType
             const synkkStatus = await ipcRenderer.invoke('check-synkk-status');
-            const existingRealDb = (pairing?.posIdentifier && pairing.posIdentifier !== 'desktop-db' && pairing.posIdentifier !== 'web-extension') ? pairing.posIdentifier : null;
 
             if (synkkStatus?.posType === 'web-pos' || synkkStatus?.connectionType === 'web-pos') {
+              // Web POS users don't need a local DB file — auto-skip to Done dashboard
               await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
               shouldAutoSkip = true;
             } else if (synkkStatus?.posType === 'desktop' || synkkStatus?.connectionType === 'desktop') {
-              await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: existingRealDb });
-              shouldAutoSkip = true;
+              // User was logged as desktop in the cloud, BUT on this PC we cannot find
+              // the local database file!
+              // DO NOT auto-skip! Stay on this screen so auto-scanner runs and user confirms their POS.
+              await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: null });
+              shouldAutoSkip = false;
             } else {
               // Check Web POS extension data
               const res = await fetch(`https://www.psx.ng/api/extension/dashboard-data?pharmacyId=${encodeURIComponent(storefront.slug)}`);
               if (res.ok) {
                 const data = await res.json();
-                if (data.isWebPos || data.connectionType === 'web-pos' || (data.extensionInventory && data.extensionInventory.length > 0) || (data.sales && data.sales.length > 0)) {
+                if (data.isWebPos || data.connectionType === 'web-pos' || (data.extensionInventory && data.extensionInventory.length > 0)) {
                   await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
-                  shouldAutoSkip = true;
-                } else if (data.desktopInventory && data.desktopInventory.length > 0) {
-                  await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: existingRealDb });
                   shouldAutoSkip = true;
                 }
               }
-            }
-
-            // Fallback: if they have items synced in cloud, auto-skip to Done screen
-            if (!shouldAutoSkip && synkkStatus && synkkStatus.itemCount > 0) {
-              shouldAutoSkip = true;
             }
           } catch (e) {
             console.error("Cloud fetch failed", e);
