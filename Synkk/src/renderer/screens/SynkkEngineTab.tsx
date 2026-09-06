@@ -49,11 +49,13 @@ export default function SynkkEngineTab() {
           try {
             // Check cloud synkk-status first to honor persistent posType
             const synkkStatus = await ipcRenderer.invoke('check-synkk-status');
+            const existingRealDb = (pairing?.posIdentifier && pairing.posIdentifier !== 'desktop-db' && pairing.posIdentifier !== 'web-extension') ? pairing.posIdentifier : null;
+
             if (synkkStatus?.posType === 'web-pos' || synkkStatus?.connectionType === 'web-pos') {
               await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
               shouldAutoSkip = true;
             } else if (synkkStatus?.posType === 'desktop' || synkkStatus?.connectionType === 'desktop') {
-              await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: 'desktop-db' });
+              await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: existingRealDb });
               shouldAutoSkip = true;
             } else {
               // Check Web POS extension data
@@ -64,7 +66,7 @@ export default function SynkkEngineTab() {
                   await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
                   shouldAutoSkip = true;
                 } else if (data.desktopInventory && data.desktopInventory.length > 0) {
-                  await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: 'desktop-db' });
+                  await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: existingRealDb });
                   shouldAutoSkip = true;
                 }
               }

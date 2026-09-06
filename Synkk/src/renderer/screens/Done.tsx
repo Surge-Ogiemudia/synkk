@@ -161,8 +161,9 @@ export default function Done() {
           if (cloudStatus.posType === 'desktop' || cloudStatus.connectionType === 'desktop') {
             webPosDetected = false;
             setIsWebPos(false);
-            if (pairing?.connectionType === 'web-pos') {
-              await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: 'desktop-db' });
+            const realDb = (pairing?.posIdentifier && pairing.posIdentifier !== 'desktop-db' && pairing.posIdentifier !== 'web-extension') ? pairing.posIdentifier : null;
+            if (pairing?.connectionType === 'web-pos' || pairing?.posIdentifier === 'desktop-db') {
+              await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: realDb });
             }
           } else if (cloudStatus.posType === 'web-pos' || cloudStatus.connectionType === 'web-pos') {
             webPosDetected = true;
@@ -191,13 +192,21 @@ export default function Done() {
         } catch(e) {}
       } else {
         setIsWebPos(false);
-        setDbPath(pairing?.posIdentifier || null);
+        const activeLocalDb = (pairing?.posIdentifier && pairing.posIdentifier !== 'desktop-db' && pairing.posIdentifier !== 'web-extension') ? pairing.posIdentifier : null;
+        setDbPath(activeLocalDb);
         const time = await ipcRenderer.invoke('get-last-sync-time');
         if (time) setLastSync(time);
       }
       
       const lastError = await ipcRenderer.invoke('get-last-sync-error');
-      if (lastError) setSyncError(lastError);
+      if (lastError) {
+        if (lastError.userMessage && (lastError.userMessage.includes('unable to open database file') || lastError.userMessage.includes('desktop-db'))) {
+          await ipcRenderer.invoke('clear-sync-error');
+          setSyncError(null);
+        } else {
+          setSyncError(lastError);
+        }
+      }
     };
     loadSettings();
     
