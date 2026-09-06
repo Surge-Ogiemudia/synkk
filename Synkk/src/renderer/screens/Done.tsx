@@ -19,6 +19,7 @@ export default function Done() {
   const [isWebPos, setIsWebPos] = React.useState(false);
   const [dbPath, setDbPath] = React.useState<string | null>(null);
   const [lastSync, setLastSync] = React.useState<string | null>(null);
+  const [cloudConnected, setCloudConnected] = React.useState(false);
   const [syncError, setSyncError] = React.useState<{ code: string; userMessage: string; severity: string; timestamp?: string } | null>(null);
   const [isRetrying, setIsRetrying] = React.useState(false);
   const [isSyncing, setIsSyncing] = React.useState(false);
@@ -153,14 +154,26 @@ export default function Done() {
       // Check cloud user status (remembers user type across all logins)
       try {
         const cloudStatus = await ipcRenderer.invoke('check-synkk-status');
-        if (cloudStatus?.posType === 'web-pos' || cloudStatus?.connectionType === 'web-pos') {
-          webPosDetected = true;
-          if (!pairing || pairing.connectionType !== 'web-pos') {
-            await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
+        if (cloudStatus) {
+          if (cloudStatus.connected) {
+            setCloudConnected(true);
           }
-        }
-        if (cloudStatus?.lastSync) {
-          setLastSync(cloudStatus.lastSync);
+          if (cloudStatus.posType === 'desktop' || cloudStatus.connectionType === 'desktop') {
+            webPosDetected = false;
+            setIsWebPos(false);
+            if (pairing?.connectionType === 'web-pos') {
+              await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: 'desktop-db' });
+            }
+          } else if (cloudStatus.posType === 'web-pos' || cloudStatus.connectionType === 'web-pos') {
+            webPosDetected = true;
+            setIsWebPos(true);
+            if (!pairing || pairing.connectionType !== 'web-pos') {
+              await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
+            }
+          }
+          if (cloudStatus.lastSync) {
+            setLastSync(cloudStatus.lastSync);
+          }
         }
       } catch (e) {}
 
@@ -171,7 +184,7 @@ export default function Done() {
           const res = await fetch(`https://www.psx.ng/api/extension/dashboard-data?pharmacyId=${encodeURIComponent(storefront?.slug || "")}`);
           if (res.ok) {
             const data = await res.json();
-            if (data.inventory && data.inventory.length > 0) {
+            if (data.isWebPos !== false && data.inventory && data.inventory.length > 0) {
               setLastSync(data.inventory[0].lastSynced);
             }
           }
@@ -422,7 +435,7 @@ export default function Done() {
                         <span className="w-2 h-2 rounded-full bg-amber-500"></span> Awaiting Sync
                       </span>
                     )
-                  ) : dbPath ? (
+                  ) : (dbPath || cloudConnected) ? (
                     <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Active
                     </span>
@@ -488,7 +501,7 @@ export default function Done() {
                         <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                         {isSyncing ? 'Refreshing...' : 'Refresh Status'}
                       </button>
-                    ) : !dbPath ? (
+                    ) : (!dbPath && !cloudConnected) ? (
                       <button 
                         onClick={async () => {
                           // @ts-ignore
