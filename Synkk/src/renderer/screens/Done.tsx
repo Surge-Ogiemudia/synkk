@@ -154,18 +154,24 @@ export default function Done() {
           if (cloudStatus.connected) {
             setCloudConnected(true);
           }
-          if (cloudStatus.posType === 'desktop' || cloudStatus.connectionType === 'desktop') {
+          const hasLocalFile = pairing?.posIdentifier && 
+            pairing.posIdentifier !== 'desktop-db' && 
+            pairing.posIdentifier !== 'web-extension';
+
+          if (cloudStatus.posType === 'desktop' || cloudStatus.connectionType === 'desktop' || hasLocalFile) {
             webPosDetected = false;
             setIsWebPos(false);
-            const realDb = (pairing?.posIdentifier && pairing.posIdentifier !== 'desktop-db' && pairing.posIdentifier !== 'web-extension') ? pairing.posIdentifier : null;
-            if (pairing?.connectionType === 'web-pos' || pairing?.posIdentifier === 'desktop-db') {
-              await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: realDb });
+            if (hasLocalFile && pairing?.connectionType !== 'desktop') {
+              await ipcRenderer.invoke('save-learned-system', { ...pairing, connectionType: 'desktop' });
             }
           } else if (cloudStatus.posType === 'web-pos' || cloudStatus.connectionType === 'web-pos') {
-            webPosDetected = true;
-            setIsWebPos(true);
-            if (!pairing || pairing.connectionType !== 'web-pos') {
-              await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
+            // Only adopt web-pos if there is NO local DB configured on this PC
+            if (!hasLocalFile) {
+              webPosDetected = true;
+              setIsWebPos(true);
+              if (!pairing || pairing.connectionType !== 'web-pos') {
+                await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
+              }
             }
           }
           if (cloudStatus.lastSync) {
