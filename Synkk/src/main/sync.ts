@@ -547,6 +547,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
       broadcastSyncProgress(90, 'Pushing updates to cloud in chunks...');
       updateTrayStatus('yellow', 'Classifying inventory...', updates.length + deletes.length + totalStreamedUpdates);
       
+      const syncSessionId = `sync_${storefrontData.slug || 'psx'}_${Date.now()}`;
       const CHUNK_SIZE = 500;
       let lastResponse: any = null;
       let chunksProcessed = 0;
@@ -556,6 +557,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
         if (updates.length === 0 && deletes.length === 0) {
           broadcastSyncStream(`[SYSTEM] Inventory up to date (${currentMap.size} items matched cloud snapshot). No diffs to push.`);
           lastResponse = await axios.post('https://www.pharmastackx.com/api/sync', {
+            sync_session_id: syncSessionId,
             pharmacy_slug: storefrontData.slug,
             pharmacy_name: storefrontData.name,
             coordinates: storefrontData.coordinates,
@@ -575,6 +577,11 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
         for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
           const updateChunk = updates.slice(i, i + CHUNK_SIZE);
           const payload = {
+            sync_session_id: syncSessionId,
+            is_final_chunk: i + CHUNK_SIZE >= updates.length,
+            total_items: updates.length,
+            chunk_index: chunksProcessed,
+            total_chunks: totalChunks,
             pharmacy_slug: storefrontData.slug,
             pharmacy_name: storefrontData.name,
             coordinates: storefrontData.coordinates,
