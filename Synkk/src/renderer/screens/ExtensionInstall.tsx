@@ -1,12 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, CheckCircle2, ArrowRight, Globe, ChevronLeft } from 'lucide-react';
+import { Download, CheckCircle2, ArrowRight, Globe, ChevronLeft, ExternalLink } from 'lucide-react';
 
 export default function ExtensionInstall() {
   const navigate = useNavigate();
   const [downloading, setDownloading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
   const [bridgeConnected, setBridgeConnected] = useState(false);
+  const [chromeWebStoreUrl, setChromeWebStoreUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('https://www.psx.ng/api/extension/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data?.chromeWebStoreUrl) {
+          setChromeWebStoreUrl(data.chromeWebStoreUrl);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Poll the local bridge to see if the extension has connected
   useEffect(() => {
@@ -79,61 +91,105 @@ export default function ExtensionInstall() {
       <div className="w-full flex gap-8">
         {/* Left Column: Instructions */}
         <div className="flex-1 bg-slate-800/40 border border-slate-700/50 rounded-2xl p-8">
-          <h2 className="text-xl font-semibold text-white mb-6">How to install</h2>
+          <h2 className="text-xl font-semibold text-white mb-6">
+            {chromeWebStoreUrl ? '1-Click Chrome Install' : 'How to install'}
+          </h2>
           
-          <div className="space-y-6">
-            <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0">1</div>
-              <div>
-                <h3 className="text-white font-medium mb-1">Download the extension</h3>
-                <p className="text-sm text-slate-400 mb-3">Save the Synkk-Extension folder to your Desktop.</p>
-                <button 
-                  onClick={handleDownload}
-                  disabled={downloaded || downloading}
-                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                >
-                  {downloading ? (
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : downloaded ? (
-                    <CheckCircle2 className="w-4 h-4" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                  {downloaded ? 'Saved to Desktop' : 'Download Extension'}
-                </button>
+          {chromeWebStoreUrl ? (
+            <div className="space-y-6">
+              <div className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center shrink-0">1</div>
+                <div>
+                  <h3 className="text-white font-medium mb-1">Add to Chrome</h3>
+                  <p className="text-sm text-slate-400 mb-3">Install Synkk official extension directly from the Chrome Web Store in one click.</p>
+                  <button 
+                    onClick={() => {
+                      // @ts-ignore
+                      const { shell } = window.require('electron');
+                      shell.openExternal(chromeWebStoreUrl);
+                    }}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-lg shadow-blue-900/30 cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4" /> Add to Chrome (1-Click)
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 font-bold flex items-center justify-center shrink-0">2</div>
-              <div>
-                <h3 className="text-white font-medium mb-1">Open Chrome Extensions</h3>
-                <p className="text-sm text-slate-400">
-                  Open a new tab in Chrome and go to <span className="bg-black/30 px-2 py-1 rounded text-emerald-400 font-mono select-all">chrome://extensions</span>
-                </p>
+              <div className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 font-bold flex items-center justify-center shrink-0">2</div>
+                <div>
+                  <h3 className="text-white font-medium mb-1">Confirm Installation</h3>
+                  <p className="text-sm text-slate-400">
+                    On the Chrome Web Store page that opens, simply click the blue <strong>"Add to Chrome"</strong> button.
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 font-bold flex items-center justify-center shrink-0">3</div>
-              <div>
-                <h3 className="text-white font-medium mb-1">Enable Developer Mode</h3>
-                <p className="text-sm text-slate-400">
-                  Turn on the "Developer mode" toggle in the top right corner.
-                </p>
+              <div className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 font-bold flex items-center justify-center shrink-0">3</div>
+                <div>
+                  <h3 className="text-white font-medium mb-1">Automatic Link</h3>
+                  <p className="text-sm text-slate-400">
+                    Once added, Synkk will detect the extension and activate live inventory syncing instantly.
+                  </p>
+                </div>
               </div>
             </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0">1</div>
+                <div>
+                  <h3 className="text-white font-medium mb-1">Download the extension</h3>
+                  <p className="text-sm text-slate-400 mb-3">Save the Synkk-Extension folder to your Desktop.</p>
+                  <button 
+                    onClick={handleDownload}
+                    disabled={downloaded || downloading}
+                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                  >
+                    {downloading ? (
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : downloaded ? (
+                      <CheckCircle2 className="w-4 h-4" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                    {downloaded ? 'Saved to Desktop' : 'Download Extension'}
+                  </button>
+                </div>
+              </div>
 
-            <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 font-bold flex items-center justify-center shrink-0">4</div>
-              <div>
-                <h3 className="text-white font-medium mb-1">Drag and Drop</h3>
-                <p className="text-sm text-slate-400">
-                  Drag the <span className="font-semibold text-white">Synkk-Extension</span> folder from your desktop into the Chrome window.
-                </p>
+              <div className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 font-bold flex items-center justify-center shrink-0">2</div>
+                <div>
+                  <h3 className="text-white font-medium mb-1">Open Chrome Extensions</h3>
+                  <p className="text-sm text-slate-400">
+                    Open a new tab in Chrome and go to <span className="bg-black/30 px-2 py-1 rounded text-emerald-400 font-mono select-all">chrome://extensions</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 font-bold flex items-center justify-center shrink-0">3</div>
+                <div>
+                  <h3 className="text-white font-medium mb-1">Enable Developer Mode</h3>
+                  <p className="text-sm text-slate-400">
+                    Turn on the "Developer mode" toggle in the top right corner.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 font-bold flex items-center justify-center shrink-0">4</div>
+                <div>
+                  <h3 className="text-white font-medium mb-1">Drag and Drop</h3>
+                  <p className="text-sm text-slate-400">
+                    Drag the <span className="font-semibold text-white">Synkk-Extension</span> folder from your desktop into the Chrome window.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Right Column: Status & GIF */}
