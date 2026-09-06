@@ -644,6 +644,14 @@ export function setupIpc() {
     return getStore('pairing');
   });
 
+  ipcMain.handle('check-pos-exists', async () => {
+    const pairing = getStore('pairing') as any;
+    if (!pairing || !pairing.posIdentifier) return false;
+    if (pairing.posIdentifier === 'desktop-db' || pairing.posIdentifier === 'web-extension') return false;
+    if (typeof pairing.posIdentifier === 'string' && pairing.posIdentifier.startsWith('http')) return true;
+    return fs.existsSync(pairing.posIdentifier);
+  });
+
   ipcMain.handle('check-synkk-status', async () => {
     try {
       const creds = getStore('psxCredentials') as any;
