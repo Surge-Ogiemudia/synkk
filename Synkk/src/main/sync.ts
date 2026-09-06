@@ -357,7 +357,9 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
     broadcastSyncProgress(30, 'Extracting latest inventory...');
     
     // Set up progressive streaming logic
-    const lastSyncSnapshot = (getStore('lastSyncSnapshot') || []) as any[];
+    const snapshotKey = storefrontData?.slug ? `lastSyncSnapshot_${storefrontData.slug}` : 'lastSyncSnapshot';
+    const isForceSync = trigger === 'manual' || trigger === 'force' || trigger === 'initial';
+    const lastSyncSnapshot = (isForceSync ? [] : (getStore(snapshotKey) || [])) as any[];
     const lastMap = new Map((lastSyncSnapshot as any[]).map(item => [item.name, item]));
     const axios = require('axios');
     let totalStreamedUpdates = 0;
@@ -366,7 +368,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
       const streamUpdates: any[] = [];
       for (const currentItem of batch) {
         const lastItem = lastMap.get(currentItem.name);
-        if (!lastItem) {
+        if (isForceSync || !lastItem) {
           streamUpdates.push(currentItem);
         } else if (lastItem.qty !== currentItem.qty || lastItem.price !== currentItem.price) {
           streamUpdates.push(currentItem);
@@ -506,8 +508,12 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
     const currentMap = new Map(rawInventory.map(item => [item.name, item]));
 
     // If we already streamed the updates progressively, we don't need to double-post them.
-    // We only calculate final updates if streaming wasn't used (e.g. Local SQLite branch).
-    if (totalStreamedUpdates === 0) {
+    // If it's a force sync or we have no prior snapshot for this storefront slug, push EVERYTHING
+    if (isForceSync || lastMap.size === 0) {
+      for (const item of currentMap.values()) {
+        updates.push(item);
+      }
+    } else if (totalStreamedUpdates === 0) {
       for (const [name, currentItem] of currentMap.entries()) {
         const lastItem = lastMap.get(name);
         if (!lastItem) {
@@ -521,11 +527,13 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
     // Find missing items (in last map, but not in current map)
     // Instead of deleting them, we soft-delete them by setting qty = 0 (Out of Stock)
     let softDeletedCount = 0;
-    for (const [name, lastItem] of lastMap.entries()) {
-      if (!currentMap.has(name)) {
-        if (lastItem.qty !== 0) { // Only update if it's not already 0
-          updates.push({ ...lastItem, qty: 0 });
-          softDeletedCount++;
+    if (!isForceSync && lastMap.size > 0) {
+      for (const [name, lastItem] of lastMap.entries()) {
+        if (!currentMap.has(name)) {
+          if (lastItem.qty !== 0) { // Only update if it's not already 0
+            updates.push({ ...lastItem, qty: 0 });
+            softDeletedCount++;
+          }
         }
       }
     }
@@ -546,6 +554,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
 
       try {
         if (updates.length === 0 && deletes.length === 0) {
+          broadcastSyncStream(`[SYSTEM] Inventory up to date (${currentMap.size} items matched cloud snapshot). No diffs to push.`);
           lastResponse = await axios.post('https://www.pharmastackx.com/api/sync', {
             pharmacy_slug: storefrontData.slug,
             pharmacy_name: storefrontData.name,
@@ -586,10 +595,12 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
           chunksProcessed++;
           const percent = Math.floor(90 + (chunksProcessed / totalChunks) * 9);
           broadcastSyncProgress(percent, `Pushed chunk ${chunksProcessed}/${totalChunks}...`);
+          broadcastSyncStream(`[CLOUD] Pushed chunk ${chunksProcessed}/${totalChunks} (${Math.min(i + CHUNK_SIZE, updates.length)}/${updates.length} items)...`);
         }
 
         const response = lastResponse;
         console.log('Successfully pushed to MongoDB via Web Relay!');
+        broadcastSyncStream(`[COMPLETE] Sync completed! ${updates.length} items verified and live on your storefront.`);
         telemetry.addStep('CLOUD_PUSH', `Pushed ${updates.length} updates and ${deletes.length} deletes to cloud in ${totalChunks} chunks`, true);
       
       if (response.data && response.data.newSlug && response.data.newSlug !== storefrontData.slug) {
@@ -598,7 +609,8 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
         setStore('storefront', storefrontData);
       }
       
-      // Update local snapshot cache on success
+      // Update local snapshot cache on success (scoped by slug)
+      setStore(snapshotKey, rawInventory);
       setStore('lastSyncSnapshot', rawInventory);
       setStore('lastSyncTime', new Date().toISOString());
     } catch (pushError: any) {

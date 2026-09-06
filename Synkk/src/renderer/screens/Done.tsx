@@ -45,12 +45,8 @@ export default function Done() {
     const { ipcRenderer } = window.require('electron');
     ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates }).then(async () => {
       // Only trigger initial sync if we just came from setup (have location state)
-      // and there are pre-processed items waiting. Don't blindly re-sync on every visit.
       if (location.state?.slug) {
-        const pairing = await ipcRenderer.invoke('get-pairing-data');
-        if (pairing?.initialSyncItems?.length > 0) {
-          ipcRenderer.invoke('trigger-sync');
-        }
+        ipcRenderer.invoke('trigger-sync', 'initial');
       }
     });
 
@@ -545,7 +541,7 @@ export default function Done() {
                             await new Promise(resolve => setTimeout(resolve, 500));
                             // @ts-ignore
                             const { ipcRenderer } = window.require('electron');
-                            await ipcRenderer.invoke('trigger-sync');
+                            await ipcRenderer.invoke('trigger-sync', 'manual');
                           } catch (err) {
                             console.error('Manual sync failed', err);
                           } finally {

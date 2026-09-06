@@ -411,9 +411,9 @@ export function setupIpc() {
     }
   });
 
-  ipcMain.handle('trigger-sync', async () => {
+  ipcMain.handle('trigger-sync', async (_event, trigger = 'manual') => {
     try {
-      const result = await executeSync();
+      const result = await executeSync(trigger);
       return { success: true, result };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -1207,7 +1207,12 @@ ipcMain.handle('update-csv-path', async (event) => {
 
   ipcMain.handle('logout-completely', async () => {
     try {
-      // 1. Clear active storefront session profile & pairing (encrypted psxUsers remain intact for offline authentication)
+      // 1. Clear active storefront session profile, pairing, and local inventory snapshots
+      const currentStorefront = getStore('storefront') as any;
+      if (currentStorefront?.slug) {
+        setStore(`lastSyncSnapshot_${currentStorefront.slug}`, null);
+      }
+      setStore('lastSyncSnapshot', null);
       setStore('storefront', null);
       setStore('pairing', null);
 
