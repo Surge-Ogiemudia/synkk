@@ -47,24 +47,26 @@ export default function SynkkEngineTab() {
         // 2. Check Cloud State if local pairing is missing or we want to double check Web POS
         if (!shouldAutoSkip && storefront?.slug) {
           try {
-            // Check Web POS extension data
-            const res = await fetch(`https://www.psx.ng/api/extension/dashboard-data?pharmacyId=${encodeURIComponent(storefront.slug)}`);
-            if (res.ok) {
-              const data = await res.json();
-              if (data.networkLogsCount > 0 || (data.pmsInfo && data.pmsInfo.pmsUrl !== 'None')) {
-                await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
-                shouldAutoSkip = true;
+            // Check cloud synkk-status first to honor persistent posType
+            const synkkStatus = await ipcRenderer.invoke('check-synkk-status');
+            if (synkkStatus?.posType === 'web-pos' || synkkStatus?.connectionType === 'web-pos') {
+              await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
+              shouldAutoSkip = true;
+            } else {
+              // Check Web POS extension data
+              const res = await fetch(`https://www.psx.ng/api/extension/dashboard-data?pharmacyId=${encodeURIComponent(storefront.slug)}`);
+              if (res.ok) {
+                const data = await res.json();
+                if ((data.inventory && data.inventory.length > 0) || (data.sales && data.sales.length > 0) || data.networkLogsCount > 0 || (data.pmsInfo && data.pmsInfo.pmsUrl !== 'None')) {
+                  await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
+                  shouldAutoSkip = true;
+                }
               }
             }
 
             // Check Desktop Sync inventory data
-            if (!shouldAutoSkip) {
-              const synkkStatus = await ipcRenderer.invoke('check-synkk-status');
-              if (synkkStatus && synkkStatus.itemCount > 0) {
-                // They have Desktop Sync inventory in the cloud!
-                // We leave pairing as null so Done.tsx knows it's disconnected on this PC
-                shouldAutoSkip = true;
-              }
+            if (!shouldAutoSkip && synkkStatus && synkkStatus.itemCount > 0) {
+              shouldAutoSkip = true;
             }
           } catch (e) {
             console.error("Cloud fetch failed", e);
