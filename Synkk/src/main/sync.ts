@@ -446,6 +446,19 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
         throw new Error('All automated sync tiers failed.');
       }
     } else if (pairingData.posIdentifier) {
+      if (pairingData.posIdentifier === 'desktop-db' || pairingData.posIdentifier === 'web-extension') {
+        console.log('[Sync] Placeholder posIdentifier detected. Cloud sync active.');
+        setStore('lastSyncError', null);
+        broadcastSyncProgress(100, 'Synced natively via Desktop Engine');
+        return { success: true, message: 'Desktop sync active' };
+      }
+
+      const fs = require('fs');
+      if (!fs.existsSync(pairingData.posIdentifier)) {
+        console.log(`[Sync] Local database file not found at: ${pairingData.posIdentifier}`);
+        throw new Error(`Database file not found at "${pairingData.posIdentifier}". Please click "Reconnect Database" to locate your file.`);
+      }
+
       // Branch 1: Local SQLite DB
       console.log('Target is Local Database. Executing SQLite extraction...');
       telemetry.addStep('EXTRACTION_START', 'Target is Local Database', true);
@@ -474,6 +487,11 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
       syncTier = 1;
       telemetry.addStep('LOCAL_DB_EXTRACTION', `Extracted ${rawInventory.length} items from local database`, true);
       telemetry.addTierAttempt(1, true);
+    } else {
+      console.log('[Sync] No local database configured on this PC.');
+      setStore('lastSyncError', null);
+      broadcastSyncProgress(100, 'Cloud sync active.');
+      return { success: true, message: 'Cloud sync active' };
     }
 
     // Safety Guard removed by User Request:

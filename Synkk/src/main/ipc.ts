@@ -1007,6 +1007,11 @@ ipcMain.handle('update-csv-path', async (event) => {
     return getStore('lastSyncError') || null;
   });
 
+  ipcMain.handle('clear-sync-error', async () => {
+    setStore('lastSyncError', null);
+    return { success: true };
+  });
+
   ipcMain.handle('get-sync-retry-info', async () => {
     return getStore('syncRetryInfo') || null;
   });
