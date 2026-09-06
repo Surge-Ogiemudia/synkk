@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PST — Pharmacy Stack Connector",
+  "name": "PharmastackX",
   "version": "1.0.0",
-  "description": "Connects your pharmacy software to Pharmacy Stack. AI-guided setup in seconds.",
+  "description": "Connects your pharmacy software to PharmastackX.",
 
   "icons": {
     "16":  "icons/icon16.png",
@@ -18,7 +18,7 @@
       "48":  "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "PST Connector"
+    "default_title": "PharmastackX"
   },
 
   "side_panel": {
@@ -49,12 +49,11 @@
     "sidePanel",
     "storage",
     "tabs",
-    "notifications",
-    "scripting",
-    "activeTab"
+    "activeTab",
+    "alarms"
   ],
 
   "host_permissions": [
-    "http://127.0.0.1:3002/*"
+    "<all_urls>"
   ]
 }

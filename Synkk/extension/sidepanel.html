@@ -1,383 +1,283 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PharmastackX</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <title>PharmastackX Setup Wizard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0b0f17;
-      --surface: #111827;
-      --surface-card: #161f30;
-      --surface2: #1e293b;
-      --border: rgba(255, 255, 255, 0.08);
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #21262d;
+      --border: rgba(255,255,255,0.08);
       --accent: #00d4aa;
-      --accent-hover: #00b894;
       --accent2: #00a3ff;
-      --text: #f1f5f9;
-      --text-muted: #94a3b8;
-      --red: #ef4444;
-      --green: #10b981;
+      --text: #f0f6fc;
+      --muted: #8b949e;
+      --red: #ff4444;
+      --green: #238636;
     }
-    html, body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: 13px;
-      overflow: hidden;
-    }
-    .app-root {
-      width: 100%;
-      height: 100%;
-      position: relative;
-    }
+    html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); font-size: 13px; }
+    .container { display: flex; flex-direction: column; height: 100vh; overflow-y: auto; }
 
-    /* IFRAME COCKPIT VIEW */
-    #appFrame {
-      width: 100%;
-      height: 100%;
-      border: none;
-      display: none;
-      background: var(--bg);
+    /* HEADER */
+    .header {
+      display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
     }
-    #appFrame.active {
-      display: block;
+    .avatar {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 14px; color: #000;
     }
+    .header-info { flex: 1; }
+    .header-name { font-weight: 700; font-size: 14px; }
+    .header-status { font-size: 11px; color: var(--muted); }
 
-    #loadingOverlay {
-      position: absolute;
-      inset: 0;
-      background: var(--bg);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      color: var(--text-muted);
-      font-size: 12px;
-      transition: opacity 0.3s ease-out;
-      z-index: 50;
-    }
-    .spinner {
-      width: 24px;
-      height: 24px;
-      border: 2px solid rgba(0, 212, 170, 0.2);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    /* STEPS WRAPPER */
+    .steps-container { padding: 20px; display: flex; flex-direction: column; gap: 24px; }
 
-    /* SETUP WIZARD CONTAINER */
-    #setupContainer {
-      display: none;
-      width: 100%;
-      height: 100%;
-      overflow-y: auto;
-      flex-direction: column;
-      background: var(--bg);
-    }
-    #setupContainer.active {
-      display: flex;
-    }
-
-    .setup-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 14px;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    .setup-avatar {
-      width: 32px;
-      height: 32px;
-      border-radius: 9px;
-      background: linear-gradient(135deg, #00d4aa 0%, #0284c7 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      font-size: 13px;
-      color: #0b0f17;
-    }
-    .setup-meta h3 { font-size: 13px; font-weight: 700; }
-    .setup-meta p { font-size: 11px; color: var(--text-muted); }
-
-    .setup-body {
-      padding: 16px 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
     .step-card {
-      background: var(--surface-card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      opacity: 0.45;
-      pointer-events: none;
-      transition: all 0.25s;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px; position: relative;
+      opacity: 0.5; transition: opacity 0.3s; pointer-events: none;
     }
-    .step-card.active {
-      opacity: 1;
-      pointer-events: auto;
-      border-color: rgba(0, 212, 170, 0.4);
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    }
-    .step-card.completed {
-      opacity: 0.8;
-      border-color: var(--green);
-    }
-    .step-top {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .step-badge {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      background: var(--surface2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 700;
-    }
-    .step-card.active .step-badge {
-      background: var(--accent);
-      color: #0b0f17;
-    }
-    .step-card.completed .step-badge {
-      background: var(--green);
-      color: #fff;
-    }
-    .step-title {
-      font-weight: 700;
-      font-size: 13px;
-    }
-    .step-desc {
-      font-size: 11.5px;
-      color: var(--text-muted);
-      line-height: 1.45;
-    }
+    .step-card.active { opacity: 1; pointer-events: auto; border-color: rgba(0,212,170,0.3); }
+    .step-card.completed { opacity: 0.8; pointer-events: none; border-color: var(--green); }
 
-    .form-input {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 9px 12px;
-      font-size: 12px;
-      color: var(--text);
-      outline: none;
-      transition: border-color 0.2s;
+    .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .step-num {
+      width: 24px; height: 24px; border-radius: 50%; background: var(--surface2);
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;
     }
-    .form-input:focus { border-color: var(--accent); }
+    .step-card.active .step-num { background: rgba(0,212,170,0.1); color: var(--accent); }
+    .step-card.completed .step-num { background: var(--green); color: #fff; }
+    .step-title { font-weight: 600; font-size: 14px; }
 
+    p.desc { color: var(--muted); line-height: 1.4; margin-bottom: 16px; }
+
+    /* BUTTONS */
     .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 8px 14px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      border: none;
-      transition: all 0.2s;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 8px 16px; border-radius: 6px; font-weight: 500; font-size: 13px;
+      cursor: pointer; transition: all 0.2s; border: none; width: 100%; gap: 8px;
     }
-    .btn-primary {
-      background: var(--accent);
-      color: #0b0f17;
-    }
-    .btn-primary:hover {
-      background: var(--accent-hover);
-    }
-    .btn-secondary {
-      background: var(--surface2);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-secondary:hover {
-      background: #2b313a;
-    }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-primary:hover { background: #00e5b8; }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: #2b313a; }
     
     .btn-group { display: flex; gap: 8px; flex-direction: column; }
 
     /* DATA TABLE PREVIEW */
     .table-preview {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 10px;
-      font-size: 11px;
-      background: #000;
-      border-radius: 8px;
-      overflow: hidden;
-      display: none;
+      width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 11px;
+      background: #000; border-radius: 6px; overflow: hidden; display: none;
     }
     .table-preview th, .table-preview td {
-      padding: 6px 8px;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
+      padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border);
     }
-    .table-preview th {
-      color: var(--text-muted);
-      font-weight: 600;
-      background: var(--surface2);
-    }
+    .table-preview th { color: var(--muted); font-weight: 500; background: var(--surface2); }
+    
+    /* ALERTS */
+    .alert { padding: 10px; border-radius: 6px; font-size: 12px; margin-bottom: 12px; display: none; }
+    .alert-info { background: rgba(0,163,255,0.1); color: var(--accent2); border: 1px solid rgba(0,163,255,0.2); }
+    .alert-success { background: rgba(35,134,54,0.1); color: #3fb950; border: 1px solid rgba(35,134,54,0.2); }
 
-    .alert {
-      padding: 10px;
-      border-radius: 8px;
-      font-size: 11.5px;
-      display: none;
-    }
-    .alert-info {
-      background: rgba(0, 163, 255, 0.1);
-      color: var(--accent2);
-      border: 1px solid rgba(0, 163, 255, 0.2);
-    }
-    .alert-success {
-      background: rgba(16, 185, 129, 0.1);
-      color: #3fb950;
-      border: 1px solid rgba(16, 185, 129, 0.2);
-    }
-
-    .feed-pill {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 10px;
-      font-size: 11px;
-      font-family: monospace;
-      color: var(--accent);
-      word-break: break-all;
-    }
   </style>
 </head>
 <body>
-  <div class="app-root">
-    
-    <!-- LOADING SPINNER -->
-    <div id="loadingOverlay">
-      <div class="spinner"></div>
-      <span id="loadingText">Connecting to PharmastackX...</span>
-    </div>
-
-    <!-- VIEW 1: HOSTED COCKPIT (IFRAME) -->
-    <iframe id="appFrame" src="about:blank" allow="clipboard-read; clipboard-write;"></iframe>
-
-    <!-- VIEW 2: SETUP WIZARD (LOCAL SHELL) -->
-    <div id="setupContainer">
-      <div class="setup-header">
-        <div class="setup-avatar" id="setupAvatar">PSX</div>
-        <div class="setup-meta">
-          <h3 id="setupTitle">PharmastackX Terminal</h3>
-          <p id="setupSub">Setup & Connection Wizard</p>
+  <div class="container">
+    <div class="header" style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <img src="icons/icon48.png" style="width:30px; height:30px; border-radius:6px; object-fit:contain;" />
+        <div class="header-info">
+          <div class="header-name">PharmastackX</div>
+          <div class="header-status" id="headerStatus">Not Logged In</div>
         </div>
       </div>
+      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:3px;">
+        <div style="display:flex; align-items:center; gap:4px;" id="terminalPill">
+          <span style="font-size:10px; color:var(--muted);">💻</span>
+          <input type="text" id="inputTerminalName" placeholder="Counter 1" title="Click to rename this counter / till" style="width:75px; font-size:10px; padding:2px 4px; background:var(--surface2); border:1px solid var(--border); border-radius:4px; color:#38bdf8; text-align:center; outline:none;" />
+        </div>
+        <button id="btnLogout" style="display:none; background:none; border:none; color:var(--muted); font-size:10px; cursor:pointer; text-decoration:underline;">Logout</button>
+      </div>
+    </div>
 
-      <div class="setup-body">
+    <div class="steps-container">
+      
+      <!-- STEP 0: AUTHENTICATION -->
+      <div class="step-card active" id="stepAuth">
+        <div class="step-header">
+          <div class="step-num">🔑</div>
+          <div class="step-title">Account Login</div>
+        </div>
+        <p class="desc">Log in with your existing PharmastackX account to link your pharmacy branch.</p>
         
-        <!-- STEP AUTH: Login -->
-        <div id="stepAuth" class="step-card active">
-          <div class="step-top">
-            <div class="step-badge">🔑</div>
-            <div class="step-title">Sign In to Pharmacy</div>
+        <div class="alert alert-info" id="authAlert" style="display:none;"></div>
+        
+        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px;">
+          <div>
+            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">Email Address</label>
+            <input type="email" id="authEmail" placeholder="admin@gmail.com" style="width:100%; padding:8px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; outline:none;" />
           </div>
-          <p class="step-desc">Enter your pharmacy credentials to link this POS terminal.</p>
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <input type="email" id="authEmail" class="form-input" placeholder="Pharmacy Email" />
-            <input type="password" id="authPassword" class="form-input" placeholder="Password" />
-            <input type="text" id="authTerminalName" class="form-input" placeholder="Till Name (e.g. Counter 1, Till 2)" />
-            <button id="btnLogin" class="btn btn-primary" style="margin-top: 4px;">Sign In</button>
-            <div id="authAlert" style="display:none; color: var(--red); font-size: 11px;"></div>
-          </div>
-        </div>
-
-        <!-- STEP 1: Link POS URL -->
-        <div id="step1" class="step-card">
-          <div class="step-top">
-            <div class="step-badge">1</div>
-            <div class="step-title">Link POS Portal</div>
-          </div>
-          <p class="step-desc">Open a tab to your Web POS / PMS portal. We will automatically detect the active URL.</p>
-          <div id="urlFeed" class="feed-pill" style="display:none; margin-bottom: 4px;"></div>
-          <button id="btnConfirmURL" class="btn btn-primary">Yes, this is my POS</button>
-        </div>
-
-        <!-- STEP 2: Sync Inventory Table -->
-        <div id="step2" class="step-card">
-          <div class="step-top">
-            <div class="step-badge">2</div>
-            <div class="step-title">Sync Inventory</div>
-          </div>
-          <p class="step-desc">Navigate to your PMS Inventory/Products page. If you have multiple pages, train pagination first.</p>
-          
-          <div class="alert alert-info" id="trainingAlert">Click the 'Next Page' button on your website now.</div>
-
-          <div class="btn-group" id="s1-btns">
-            <button class="btn btn-secondary" id="btnTrainPage">Train Pagination (Optional)</button>
-            <button class="btn btn-primary" id="btnScanInventory">Scan Current Page</button>
-            <button class="btn" style="background:var(--red); color:#fff; display:none;" id="btnStopScanning">Stop Scanning</button>
-          </div>
-
-          <!-- Table Preview -->
-          <div style="overflow-x:auto;">
-            <table class="table-preview" id="inventoryTable">
-              <thead id="inventoryHead"><tr><th>ID</th><th>Name</th><th>Qty</th><th>Price</th></tr></thead>
-              <tbody id="inventoryBody"></tbody>
-            </table>
-          </div>
-
-          <!-- Column Mapper UI -->
-          <div id="mappingUI" style="display:none; margin-top:10px; background:var(--surface2); padding:10px; border-radius:8px; font-size:11.5px;">
-            <p style="margin-bottom:8px; font-weight:700;">Map Table Columns:</p>
-            <div style="display:flex; flex-direction:column; gap:6px;">
-              <label>Product ID: <select id="mapId" class="form-input map-select" style="padding:4px 8px;"></select></label>
-              <label>Product Name: <select id="mapName" class="form-input map-select" style="padding:4px 8px;"></select></label>
-              <label>Quantity: <select id="mapQty" class="form-input map-select" style="padding:4px 8px;"></select></label>
-              <label>Price: <select id="mapPrice" class="form-input map-select" style="padding:4px 8px;"></select></label>
+          <div>
+            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">Password</label>
+            <div style="position:relative; width:100%;">
+              <input type="password" id="authPassword" placeholder="••••••••" style="width:100%; padding:8px 32px 8px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; outline:none;" />
+              <button id="togglePasswordBtn" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--muted); cursor:pointer; padding:2px;">
+                <svg id="eyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
             </div>
-            <button class="btn btn-primary" id="btnApplyMapping" style="margin-top:8px; width:100%;">Apply Mapping</button>
           </div>
-
-          <div class="btn-group" id="s1-confirm-btns" style="display:none; margin-top:10px;">
-            <button class="btn btn-primary" id="btnConfirmInventory">Looks Good! Confirm & Sync</button>
-            <button class="btn btn-secondary" id="btnMapColumns">Fix Columns</button>
+          <div>
+            <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">Counter / Till Name</label>
+            <input type="text" id="authTerminalName" placeholder="e.g. Counter 1, Cashier 2, Till 1" value="Counter 1" style="width:100%; padding:8px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; outline:none;" />
           </div>
         </div>
 
-        <!-- STEP 3: Complete & Open Cockpit -->
-        <div id="step3" class="step-card">
-          <div class="step-top">
-            <div class="step-badge">3</div>
-            <div class="step-title">Setup Complete</div>
-          </div>
-          <p class="step-desc" style="color:#3fb950;">Your POS is now connected to PharmastackX.</p>
-          <button id="btnLaunchCockpit" class="btn btn-primary">Open Sourcing Cockpit →</button>
-        </div>
-
+        <button class="btn btn-primary" id="btnLogin">Log In to PharmastackX</button>
       </div>
+
+      
+      <!-- STEP 1: LINK POS PORTAL -->
+      <div class="step-card active" id="step1">
+        <div class="step-header">
+          <div class="step-num">1</div>
+          <div class="step-title">Link POS Portal</div>
+        </div>
+        <p class="desc">Open a new tab and navigate to your Pharmacy Point of Sale (POS) or PMS website. We will automatically detect the URL.</p>
+        
+        <div id="urlDetectionFeed" style="margin-top:12px; display:flex; flex-direction:column; gap:10px;">
+          <div class="alert alert-info" style="display:block;">Waiting for you to open your POS...</div>
+        </div>
+        
+        <div class="btn-group" id="s1-confirm-btns" style="display:none; margin-top:12px;">
+          <button class="btn btn-primary" id="btnConfirmURL">Yes, this is my POS</button>
+        </div>
+        
+        <div id="accountDetectionFeed" style="margin-top:12px; display:flex; flex-direction:column; gap:10px; display:none;">
+          <div class="alert alert-success" id="accountAlert" style="display:block; background:rgba(35,134,54,0.1); border-color:#3fb950;"></div>
+        </div>
+        
+        <div class="btn-group" id="s1-confirm-account-btns" style="display:none; margin-top:12px;">
+          <button class="btn btn-primary" id="btnConfirmAccount">Yes, link my account</button>
+        </div>
+      </div>
+
+
+      <!-- STEP 2: INVENTORY -->
+      <div class="step-card" id="step2">
+          <div class="step-header">
+            <div class="step-num">2</div>
+          <div class="step-title">Sync Inventory</div>
+        </div>
+
+        
+        <p class="desc">Navigate to your PMS Inventory/Products page. If you have multiple pages, train the pagination button first.</p>
+        
+        <div class="alert alert-info" id="trainingAlert">Click the 'Next Page' button on your website now.</div>
+        
+        <div class="btn-group" id="s1-btns">
+          <button class="btn btn-secondary" id="btnTrainPage">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            Train Pagination (Optional)
+          </button>
+          <button class="btn btn-primary" id="btnScanInventory">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            Scan Current Page
+          </button>
+          <button class="btn" style="background:var(--red); color:#fff; display:none;" id="btnStopScanning">
+            Stop Scanning
+          </button>
+        </div>
+
+        <!-- Table Preview injected here by JS -->
+        <div style="overflow-x:auto;">
+          <table class="table-preview" id="inventoryTable">
+            <thead id="inventoryHead"><tr><th>ID</th><th>Name</th><th>Qty</th><th>Price</th></tr></thead>
+            <tbody id="inventoryBody"></tbody>
+          </table>
+        </div>
+
+        <div id="mappingUI" style="display:none; margin-top:12px; background:var(--surface2); padding:12px; border-radius:6px; font-size:12px; box-sizing:border-box; width:100%;">
+          <p style="margin-bottom:10px; font-weight:600; color:var(--text);">Map Table Columns:</p>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <label style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span style="font-size:11px;">Product Name <strong style="color:var(--accent2); font-size:10px;">*</strong></span>
+              <select id="mapName" class="map-select" style="flex:1; max-width:140px; min-width:110px; padding:5px 6px; font-size:11px; box-sizing:border-box; background:var(--surface); border:1px solid var(--border); border-radius:4px; color:var(--text);"></select>
+            </label>
+            <label style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span style="font-size:11px;">Quantity <strong style="color:var(--accent2); font-size:10px;">*</strong></span>
+              <select id="mapQty" class="map-select" style="flex:1; max-width:140px; min-width:110px; padding:5px 6px; font-size:11px; box-sizing:border-box; background:var(--surface); border:1px solid var(--border); border-radius:4px; color:var(--text);"></select>
+            </label>
+            <label style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span style="font-size:11px;">Price <strong style="color:var(--accent2); font-size:10px;">*</strong></span>
+              <select id="mapPrice" class="map-select" style="flex:1; max-width:140px; min-width:110px; padding:5px 6px; font-size:11px; box-sizing:border-box; background:var(--surface); border:1px solid var(--border); border-radius:4px; color:var(--text);"></select>
+            </label>
+            <label style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted);">Product ID / SKU</span>
+              <select id="mapId" class="map-select" style="flex:1; max-width:140px; min-width:110px; padding:5px 6px; font-size:11px; box-sizing:border-box; background:var(--surface); border:1px solid var(--border); border-radius:4px; color:var(--text);"></select>
+            </label>
+          </div>
+
+          <!-- Dynamic Additional Columns (Brand, Size, Category, etc.) -->
+          <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border); box-sizing:border-box; width:100%;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-weight:600; font-size:11px; color:var(--text);">Additional Columns:</span>
+              <button type="button" class="btn btn-secondary" id="btnAddCustomCol" style="font-size:10px; padding:3px 8px; cursor:pointer; height:auto; line-height:normal;">
+                + Add Column
+              </button>
+            </div>
+            <div id="customColumnsContainer" style="display:flex; flex-direction:column; gap:6px; box-sizing:border-box; width:100%;"></div>
+          </div>
+
+          <button class="btn btn-primary" id="btnApplyMapping" style="margin-top:12px; width:100%;">Apply Mapping</button>
+        </div>
+
+        <div class="btn-group" id="s2-confirm-btns" style="display:none; margin-top:12px;">
+            <button class="btn btn-primary" id="btnConfirmInventory">Looks Good!</button>
+          <button class="btn btn-secondary" id="btnMapColumns">Fix Columns</button>
+        </div>
+      </div>
+
+      <!-- STEP 2: MOCK SALE -->
+      <div class="step-card" id="step3">
+          <div class="step-header">
+            <div class="step-num">3</div>
+          <div class="step-title">Mock Sale Test</div>
+        </div>
+        <p class="desc">Please perform a full checkout in your software right now. We are silently watching the network for the receipt data.</p>
+        
+        <div class="alert alert-info" id="listeningAlert" style="display:block;">Listening for network responses...</div>
+
+        <div id="networkFeed" style="margin-top:12px; display:flex; flex-direction:column; gap:10px; max-height: 250px; overflow-y: auto;">
+          <!-- Network event cards injected here -->
+        </div>
+
+        <div class="btn-group" id="s2-confirm-btns" style="margin-top:12px;">
+          <button class="btn btn-primary" id="btnConfirmSale">Confirm & Finish</button>
+        </div>
+      </div>
+
+      <!-- STEP 3: COMPLETE -->
+      <div class="step-card" id="step4">
+          <div class="step-header">
+            <div class="step-num">4</div>
+          <div class="step-title">Setup Complete</div>
+        </div>
+        <p class="desc" style="margin-bottom:0; color:#3fb950;">PharmastackX is now securely synced to your cloud provider. You can close this panel.</p>
+      </div>
+
     </div>
-
   </div>
-
   <script src="sidepanel.js"></script>
 </body>
 </html>
