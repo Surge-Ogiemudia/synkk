@@ -11,8 +11,8 @@ let currentChannel: any = null;
 export default function Done() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [slug, setSlug] = React.useState(location.state?.slug || 'my-pharmacy');
-  const [name, setName] = React.useState(location.state?.name || 'My Pharmacy');
+  const [slug, setSlug] = React.useState(location.state?.slug || '');
+  const [name, setName] = React.useState(location.state?.name || '');
   const coordinates = location.state?.coordinates || null;
   
   const [syncFreq, setSyncFreq] = React.useState('15m');
@@ -40,15 +40,19 @@ export default function Done() {
   const [updateStatus, setUpdateStatus] = React.useState<any>(null);
 
   useEffect(() => {
-    // Save storefront data to backend
     // @ts-ignore
     const { ipcRenderer } = window.require('electron');
-    ipcRenderer.invoke('save-storefront-data', { slug, name, coordinates }).then(async () => {
-      // Only trigger initial sync if we just came from setup (have location state)
-      if (location.state?.slug) {
+    
+    // Only save storefront data and trigger initial sync if we explicitly came from setup with location state
+    if (location.state?.slug) {
+      ipcRenderer.invoke('save-storefront-data', { 
+        slug: location.state.slug, 
+        name: location.state.name || location.state.slug, 
+        coordinates: location.state.coordinates || null 
+      }).then(() => {
         ipcRenderer.invoke('trigger-sync', 'initial');
-      }
-    });
+      });
+    }
 
     // Load initial settings
     ipcRenderer.invoke('get-sync-frequency').then((freq: string) => {
@@ -129,9 +133,16 @@ export default function Done() {
     const loadSettings = async () => {
       // @ts-ignore
       const { ipcRenderer } = window.require('electron');
-      const storefront = await ipcRenderer.invoke('get-storefront-data');
+      let storefront = await ipcRenderer.invoke('get-storefront-data');
+      if (!storefront?.slug || storefront.slug === 'my-pharmacy') {
+        const creds = await ipcRenderer.invoke('get-psx-credentials');
+        if (creds?.storefront?.slug) {
+          storefront = creds.storefront;
+          await ipcRenderer.invoke('save-storefront-data', storefront);
+        }
+      }
       if (storefront?.slug) setSlug(storefront.slug);
-      if (storefront?.name) setName(storefront.name);
+      if (storefront?.name) setName(storefront.name || storefront.slug);
 
       const freq = await ipcRenderer.invoke('get-sync-frequency');
       const settings = await ipcRenderer.invoke('get-settings');

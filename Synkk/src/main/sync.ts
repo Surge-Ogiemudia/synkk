@@ -310,7 +310,15 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
   broadcastSyncError(null); // Clear previous errors
   broadcastSyncProgress(10, 'Initializing sync cycle...');
   const pairingData = (getStore('pairing') || { name: 'Unknown Pharmacy' }) as any;
-  const storefrontData = (getStore('storefront') || { slug: 'unknown', name: 'Unknown' }) as any;
+  let storefrontData = (getStore('storefront') || { slug: 'unknown', name: 'Unknown' }) as any;
+  if (!storefrontData?.slug || storefrontData.slug === 'my-pharmacy' || storefrontData.slug === 'unknown') {
+    const creds = getStore('psxCredentials') as any;
+    if (creds?.storefront?.slug) {
+      storefrontData = creds.storefront;
+      setStore('storefront', storefrontData);
+      console.log(`[Sync] Auto-recovered valid storefront from credentials: ${storefrontData.slug}`);
+    }
+  }
   const telemetry = createTelemetryCollector();
   const posMethod = pairingData.posIdentifier?.startsWith('http') ? 'web' : (pairingData.posIdentifier ? 'local_db' : 'unknown');
   telemetry.addStep('SYNC_START', `Trigger: ${trigger}, POS: ${posMethod}`, true);
