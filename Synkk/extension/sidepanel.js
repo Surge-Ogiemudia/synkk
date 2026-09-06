@@ -173,7 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
       step2.style.pointerEvents = "auto";
       
       const pharmacyId = currentSession ? currentSession.pharmacy.id : 'DEFAULT';
-      fetch("https://www.pharmastackx.com/api/extension/save-pms-credentials", {
+      fetch("https://www.psx.ng/api/extension/save-pms-credentials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -216,7 +216,7 @@ document.addEventListener("DOMContentLoaded", () => {
       step2.style.pointerEvents = "auto";
         
       const pharmacyId = currentSession ? currentSession.pharmacy.id : 'DEFAULT';
-      fetch("https://www.pharmastackx.com/api/extension/save-pms-credentials", {
+      fetch("https://www.psx.ng/api/extension/save-pms-credentials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -246,18 +246,18 @@ document.addEventListener("DOMContentLoaded", () => {
     authAlert.style.display = "none";
 
     try {
-      const res = await fetch("https://www.pharmastackx.com/api/extension/login", {
+      const res = await fetch("https://www.psx.ng/api/extension/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         const termVal = (authTerminalName && authTerminalName.value.trim()) ? authTerminalName.value.trim() : 'Counter 1';
         chrome.storage.local.set({
           currentUser: data.user,
-          currentPharmacy: pharmacyObj,
+          currentPharmacy: data.pharmacy,
           terminalId: termVal
         }, () => {
           checkAuth();
@@ -266,13 +266,14 @@ document.addEventListener("DOMContentLoaded", () => {
         authAlert.style.display = "block";
         authAlert.className = "alert alert-info";
         authAlert.style.color = "var(--red)";
-        authAlert.innerText = "❌ " + (data.error || "Login failed");
+        authAlert.innerText = "❌ " + (data.error || data.message || "Invalid credentials");
       }
     } catch (e) {
+      console.error("Login exception:", e);
       authAlert.style.display = "block";
       authAlert.className = "alert alert-info";
       authAlert.style.color = "var(--red)";
-      authAlert.innerText = "❌ Network error connecting to PharmastackX Server";
+      authAlert.innerText = "❌ " + (e.message || "Network error connecting to PharmastackX Server");
     } finally {
       btnLogin.innerText = "Log In to PharmastackX";
       btnLogin.disabled = false;
