@@ -255,9 +255,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         const termVal = (authTerminalName && authTerminalName.value.trim()) ? authTerminalName.value.trim() : 'Counter 1';
+        const pharmacy = data.pharmacy || {
+          id: data.pharmacyId || (data.user && data.user.id) || 'DEFAULT',
+          name: data.pharmacyName || (data.user && data.user.name) || 'My Pharmacy'
+        };
         chrome.storage.local.set({
           currentUser: data.user,
-          currentPharmacy: data.pharmacy,
+          currentPharmacy: pharmacy,
           terminalId: termVal
         }, () => {
           checkAuth();

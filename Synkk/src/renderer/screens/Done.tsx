@@ -148,7 +148,23 @@ export default function Done() {
         setAlarmDuration(settings.alarmDuration);
       }
 
-      if (pairing?.connectionType === 'web-pos' || pairing?.posIdentifier === 'web-extension') {
+      let webPosDetected = pairing?.connectionType === 'web-pos' || pairing?.posIdentifier === 'web-extension';
+
+      // Check cloud user status (remembers user type across all logins)
+      try {
+        const cloudStatus = await ipcRenderer.invoke('check-synkk-status');
+        if (cloudStatus?.posType === 'web-pos' || cloudStatus?.connectionType === 'web-pos') {
+          webPosDetected = true;
+          if (!pairing || pairing.connectionType !== 'web-pos') {
+            await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
+          }
+        }
+        if (cloudStatus?.lastSync) {
+          setLastSync(cloudStatus.lastSync);
+        }
+      } catch (e) {}
+
+      if (webPosDetected) {
         setIsWebPos(true);
         setDbPath(null);
         try {
@@ -387,33 +403,41 @@ export default function Done() {
               <div className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 mb-6 relative">
                 <h3 className="text-sm font-semibold text-slate-300 mb-4">Sync Settings</h3>
                 
-                {isWebPos && (
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-sm text-slate-400">Connection Type</span>
-                    <span className="text-xs text-emerald-400 font-medium">🌐 Web POS Extension</span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm text-slate-400">Connection Type</span>
+                  <span className="text-xs text-emerald-400 font-medium">
+                    {isWebPos ? '🌐 Web POS Extension' : '💻 Desktop Database'}
+                  </span>
+                </div>
 
-                {!isWebPos && (
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-sm text-slate-400">Sync Status</span>
-                    {dbPath ? (
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm text-slate-400">Sync Status</span>
+                  {isWebPos ? (
+                    lastSync ? (
                       <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Active
                       </span>
                     ) : (
-                      <span className="text-xs text-rose-400 font-medium flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-rose-500"></span> Disconnected
+                      <span className="text-xs text-amber-400 font-medium flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500"></span> Awaiting Sync
                       </span>
-                    )}
-                  </div>
-                )}
+                    )
+                  ) : dbPath ? (
+                    <span className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Active
+                    </span>
+                  ) : (
+                    <span className="text-xs text-rose-400 font-medium flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-rose-500"></span> Disconnected
+                    </span>
+                  )}
+                </div>
 
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-sm text-slate-400">Sync Frequency</span>
                   {isWebPos ? (
                     <span className="text-xs text-slate-300 bg-slate-800 border border-slate-700 px-2 py-1 rounded-md min-w-[120px] text-center opacity-70">
-                      Daily (Midnight)
+                      Real-time Extension
                     </span>
                   ) : (
                     <select 
@@ -441,7 +465,30 @@ export default function Done() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-slate-400">Force Sync</span>
                     
-                    {!isWebPos && !dbPath ? (
+                    {isWebPos ? (
+                      <button 
+                        onClick={async () => {
+                          setIsSyncing(true);
+                          try {
+                            const res = await fetch(`https://www.psx.ng/api/extension/dashboard-data?pharmacyId=${encodeURIComponent(slug || "")}`);
+                            if (res.ok) {
+                              const data = await res.json();
+                              if (data.inventory && data.inventory.length > 0) {
+                                setLastSync(data.inventory[0].lastSynced);
+                              }
+                            }
+                          } catch (e) {}
+                          finally {
+                            setIsSyncing(false);
+                          }
+                        }}
+                        disabled={isSyncing}
+                        className="text-xs text-emerald-400 hover:text-white font-medium px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500 rounded-lg transition-colors flex items-center gap-2"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                        {isSyncing ? 'Refreshing...' : 'Refresh Status'}
+                      </button>
+                    ) : !dbPath ? (
                       <button 
                         onClick={async () => {
                           // @ts-ignore
