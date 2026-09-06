@@ -3,73 +3,114 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PharmastackX Setup Wizard</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <title>PharmastackX Terminal</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg: #0d1117;
       --surface: #161b22;
       --surface2: #21262d;
+      --surface3: #2d333b;
       --border: rgba(255,255,255,0.08);
+      --border-light: rgba(255,255,255,0.14);
       --accent: #00d4aa;
+      --accent-hover: #00e5b8;
       --accent2: #00a3ff;
       --text: #f0f6fc;
       --muted: #8b949e;
       --red: #ff4444;
       --green: #238636;
+      --green-bright: #3fb950;
     }
     html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); font-size: 13px; }
-    .container { display: flex; flex-direction: column; height: 100vh; overflow-y: auto; }
+    .container { display: flex; flex-direction: column; height: 100vh; overflow-y: auto; position: relative; }
 
-    /* HEADER */
+    /* SHARED TOP HEADER */
     .header {
-      display: flex; align-items: center; gap: 10px; padding: 12px 14px;
-      background: var(--surface); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 40;
     }
-    .avatar {
-      width: 32px; height: 32px; border-radius: 8px;
+    .header-left { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .header-logo { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; flex-shrink: 0; }
+    .header-avatar {
+      width: 28px; height: 28px; border-radius: 6px;
       background: linear-gradient(135deg, var(--accent), var(--accent2));
       display: flex; align-items: center; justify-content: center;
-      font-weight: 800; font-size: 14px; color: #000;
+      font-weight: 800; font-size: 12px; color: #000; flex-shrink: 0;
     }
-    .header-info { flex: 1; }
-    .header-name { font-weight: 700; font-size: 14px; }
-    .header-status { font-size: 11px; color: var(--muted); }
+    .header-info { min-width: 0; }
+    .header-name {
+      font-weight: 700; font-size: 13px; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px;
+    }
+    .header-status {
+      font-size: 10px; color: var(--muted); display: flex; align-items: center; gap: 5px;
+    }
+    .pulse-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--green-bright);
+      box-shadow: 0 0 8px rgba(63, 185, 80, 0.6); display: inline-block;
+    }
+    .header-right { display: flex; align-items: center; gap: 6px; }
+    
+    .terminal-badge {
+      display: flex; align-items: center; gap: 4px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; font-size: 10px; color: #38bdf8;
+    }
+    .btn-settings-toggle {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+      width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+      color: var(--text); cursor: pointer; transition: all 0.2s;
+    }
+    .btn-settings-toggle:hover { background: var(--surface3); border-color: var(--border-light); }
 
-    /* STEPS WRAPPER */
-    .steps-container { padding: 20px; display: flex; flex-direction: column; gap: 24px; }
+    /* SETTINGS DROPDOWN */
+    .settings-dropdown {
+      position: absolute; top: 48px; right: 14px; background: var(--surface);
+      border: 1px solid var(--border-light); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      min-width: 170px; padding: 4px; z-index: 50; display: none;
+    }
+    .settings-dropdown.open { display: block; }
+    .settings-item {
+      display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 5px;
+      font-size: 11px; font-weight: 500; color: var(--text); cursor: pointer; transition: background 0.15s;
+    }
+    .settings-item:hover { background: var(--surface2); }
+    .settings-item.danger { color: var(--red); }
+    .settings-item.danger:hover { background: rgba(255, 68, 68, 0.1); }
 
+    /* ========================================= */
+    /* VIEW 1: ONBOARDING / SETUP WIZARD         */
+    /* ========================================= */
+    .steps-container { padding: 18px 14px; display: flex; flex-direction: column; gap: 18px; }
     .step-card {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; padding: 16px; position: relative;
+      border-radius: 10px; padding: 14px; position: relative;
       opacity: 0.5; transition: opacity 0.3s; pointer-events: none;
     }
     .step-card.active { opacity: 1; pointer-events: auto; border-color: rgba(0,212,170,0.3); }
     .step-card.completed { opacity: 0.8; pointer-events: none; border-color: var(--green); }
-
-    .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .step-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     .step-num {
-      width: 24px; height: 24px; border-radius: 50%; background: var(--surface2);
-      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;
+      width: 22px; height: 22px; border-radius: 50%; background: var(--surface2);
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px;
     }
     .step-card.active .step-num { background: rgba(0,212,170,0.1); color: var(--accent); }
     .step-card.completed .step-num { background: var(--green); color: #fff; }
-    .step-title { font-weight: 600; font-size: 14px; }
-
-    p.desc { color: var(--muted); line-height: 1.4; margin-bottom: 16px; }
+    .step-title { font-weight: 600; font-size: 13px; }
+    p.desc { color: var(--muted); line-height: 1.4; margin-bottom: 14px; font-size: 12px; }
 
     /* BUTTONS */
     .btn {
       display: inline-flex; align-items: center; justify-content: center;
-      padding: 8px 16px; border-radius: 6px; font-weight: 500; font-size: 13px;
-      cursor: pointer; transition: all 0.2s; border: none; width: 100%; gap: 8px;
+      padding: 8px 14px; border-radius: 6px; font-weight: 500; font-size: 12px;
+      cursor: pointer; transition: all 0.2s; border: none; width: 100%; gap: 7px;
     }
-    .btn-primary { background: var(--accent); color: #000; }
-    .btn-primary:hover { background: #00e5b8; }
+    .btn-primary { background: var(--accent); color: #000; font-weight: 600; }
+    .btn-primary:hover { background: var(--accent-hover); }
     .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
     .btn-secondary:hover { background: #2b313a; }
-    
     .btn-group { display: flex; gap: 8px; flex-direction: column; }
 
     /* DATA TABLE PREVIEW */
@@ -77,38 +118,293 @@
       width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 11px;
       background: #000; border-radius: 6px; overflow: hidden; display: none;
     }
-    .table-preview th, .table-preview td {
-      padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border);
-    }
+    .table-preview th, .table-preview td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); }
     .table-preview th { color: var(--muted); font-weight: 500; background: var(--surface2); }
-    
+
     /* ALERTS */
-    .alert { padding: 10px; border-radius: 6px; font-size: 12px; margin-bottom: 12px; display: none; }
+    .alert { padding: 10px; border-radius: 6px; font-size: 11px; margin-bottom: 12px; display: none; }
     .alert-info { background: rgba(0,163,255,0.1); color: var(--accent2); border: 1px solid rgba(0,163,255,0.2); }
     .alert-success { background: rgba(35,134,54,0.1); color: #3fb950; border: 1px solid rgba(35,134,54,0.2); }
+
+    /* ========================================= */
+    /* VIEW 2: NATIVE B2B SOURCE TAB (COCKPIT)   */
+    /* ========================================= */
+    .source-container { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+
+    /* Live Sync Health Box */
+    .sync-card {
+      background: linear-gradient(180deg, var(--surface) 0%, rgba(22,27,34,0.6) 100%);
+      border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .sync-card-row1 { display: flex; align-items: center; justify-content: space-between; }
+    .sync-badge-live {
+      display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--green-bright);
+    }
+    .sync-item-count { font-size: 11px; font-weight: 700; color: var(--text); }
+    .sync-card-row2 {
+      display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--muted);
+    }
+    .btn-sync-now { color: var(--accent); cursor: pointer; font-weight: 500; transition: color 0.15s; }
+    .btn-sync-now:hover { color: var(--accent-hover); text-decoration: underline; }
+
+    /* Sourcing Section Header */
+    .sourcing-title-row { display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
+    .sourcing-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .sourcing-sub { font-size: 11px; color: var(--muted); line-height: 1.3; }
+
+    /* Search Box & Autocomplete */
+    .search-wrapper { position: relative; width: 100%; }
+    .search-input-group {
+      display: flex; align-items: center; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px; padding: 3px 4px 3px 10px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .search-input-group:focus-within {
+      border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15);
+    }
+    .search-input {
+      flex: 1; background: transparent; border: none; color: var(--text);
+      font-size: 12px; font-family: inherit; outline: none; padding: 5px 0;
+    }
+    .search-input::placeholder { color: var(--muted); }
+    .btn-search {
+      background: var(--accent); color: #000; border: none; border-radius: 6px;
+      font-size: 11px; font-weight: 700; padding: 6px 12px; cursor: pointer; transition: background 0.15s;
+    }
+    .btn-search:hover { background: var(--accent-hover); }
+
+    /* Autocomplete Suggestions */
+    .suggestions-list {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+      background: var(--surface); border: 1px solid var(--border-light);
+      border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+      max-height: 220px; overflow-y: auto; z-index: 60; display: none;
+    }
+    .suggestions-list.active { display: block; }
+    .suggestion-item {
+      padding: 8px 12px; font-size: 12px; color: var(--text); cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+    }
+    .suggestion-item:last-child { border-bottom: none; }
+    .suggestion-item:hover { background: var(--surface2); color: var(--accent); }
+    .suggestion-sub { font-size: 10px; color: var(--muted); }
+
+    /* Results Container */
+    .results-container { display: flex; flex-direction: column; gap: 9px; min-height: 180px; }
+    
+    /* Empty State */
+    .empty-state {
+      padding: 30px 16px; text-align: center; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--border);
+      border-radius: 9px; background: rgba(22,27,34,0.4);
+    }
+    .empty-icon { font-size: 26px; margin-bottom: 2px; }
+    .empty-title { font-weight: 600; font-size: 12px; color: var(--text); }
+    .empty-desc { font-size: 11px; color: var(--muted); line-height: 1.4; max-width: 250px; }
+
+    /* Pharmacy Result Card */
+    .result-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+      padding: 11px 12px; display: flex; flex-direction: column; gap: 8px;
+      transition: border-color 0.2s, transform 0.15s;
+    }
+    .result-card:hover { border-color: rgba(0,212,170,0.3); transform: translateY(-1px); }
+    .card-row-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .card-item-title { font-weight: 700; font-size: 12.5px; color: var(--text); line-height: 1.3; }
+    .card-price { font-size: 13px; font-weight: 800; color: var(--accent); white-space: nowrap; }
+    .card-seller-info { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+    .verified-badge {
+      display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; font-weight: 600;
+      color: #38bdf8; background: rgba(56,189,248,0.1); padding: 1px 5px; border-radius: 4px;
+    }
+    .card-stock-row { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
+    .stock-badge {
+      font-size: 10.5px; color: var(--green-bright); background: rgba(35,134,54,0.15);
+      padding: 2px 6px; border-radius: 4px; font-weight: 600;
+    }
+    .stock-badge.low { color: #f59e0b; background: rgba(245,158,11,0.15); }
+    .btn-source-action {
+      background: var(--surface2); color: var(--text); border: 1px solid var(--border-light);
+      border-radius: 5px; font-size: 11px; font-weight: 600; padding: 4px 10px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s;
+    }
+    .btn-source-action:hover { background: var(--accent); color: #000; border-color: var(--accent); }
+
+    /* SLIDE-OVER CHECKOUT DRAWER */
+    .drawer-backdrop {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6);
+      z-index: 70; display: none; opacity: 0; transition: opacity 0.25s ease;
+    }
+    .drawer-backdrop.open { display: block; opacity: 1; }
+    .drawer-panel {
+      position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface);
+      border-top: 1px solid var(--border-light); border-radius: 14px 14px 0 0;
+      padding: 16px; z-index: 80; transform: translateY(100%); transition: transform 0.25s ease;
+      box-shadow: 0 -10px 30px rgba(0,0,0,0.7); max-height: 85vh; overflow-y: auto;
+    }
+    .drawer-panel.open { transform: translateY(0); }
+    .drawer-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .drawer-title { font-weight: 700; font-size: 14px; }
+    .drawer-close {
+      background: none; border: none; color: var(--muted); font-size: 16px; cursor: pointer; padding: 4px;
+    }
+    .drawer-close:hover { color: var(--text); }
+
+    /* CONFIRMATION MODAL */
+    .modal-backdrop {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7);
+      z-index: 90; display: none; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-card {
+      background: var(--surface); border: 1px solid var(--border-light); border-radius: 12px;
+      padding: 18px; width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 12px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.8);
+    }
+    .modal-title { font-weight: 700; font-size: 14px; }
+    .modal-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+    .btn-modal {
+      padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; border: none;
+    }
+    .btn-modal-cancel { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-modal-confirm { background: var(--red); color: #fff; }
+    .btn-modal-confirm.warning { background: var(--accent2); color: #000; }
 
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header" style="display:flex; justify-content:space-between; align-items:center;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <img src="icons/icon48.png" style="width:30px; height:30px; border-radius:6px; object-fit:contain;" />
+    
+    <!-- TOP ADAPTIVE HEADER -->
+    <div class="header">
+      <div class="header-left">
+        <div id="headerAvatar" class="header-avatar" style="display:none;">PS</div>
+        <img id="headerLogo" src="icons/icon48.png" class="header-logo" alt="Logo" />
         <div class="header-info">
-          <div class="header-name">PharmastackX</div>
-          <div class="header-status" id="headerStatus">Not Logged In</div>
+          <div class="header-name" id="headerName">PharmastackX</div>
+          <div class="header-status" id="headerStatus">
+            <span id="headerStatusDot" class="pulse-dot" style="display:none;"></span>
+            <span id="headerStatusText">Not Logged In</span>
+          </div>
         </div>
       </div>
-      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:3px;">
-        <div style="display:flex; align-items:center; gap:4px;" id="terminalPill">
-          <span style="font-size:10px; color:var(--muted);">💻</span>
-          <input type="text" id="inputTerminalName" placeholder="Counter 1" title="Click to rename this counter / till" style="width:75px; font-size:10px; padding:2px 4px; background:var(--surface2); border:1px solid var(--border); border-radius:4px; color:#38bdf8; text-align:center; outline:none;" />
+      
+      <div class="header-right">
+        <div class="terminal-badge" id="terminalPill">
+          <span>💻</span>
+          <input type="text" id="inputTerminalName" placeholder="Counter 1" title="Click to rename counter / till" style="width:72px; font-size:10px; padding:1px 3px; background:transparent; border:none; color:#38bdf8; text-align:center; outline:none;" />
         </div>
+        
+        <!-- Settings ⚙️ icon for Source View -->
+        <button id="btnSettingsToggle" class="btn-settings-toggle" title="Settings & Options" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+
+        <!-- Legacy Logout link for Wizard mode -->
         <button id="btnLogout" style="display:none; background:none; border:none; color:var(--muted); font-size:10px; cursor:pointer; text-decoration:underline;">Logout</button>
       </div>
     </div>
 
-    <div class="steps-container">
+    <!-- SETTINGS DROPDOWN MENU -->
+    <div id="settingsDropdown" class="settings-dropdown">
+      <div class="settings-item" id="menuForceSync">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+        <span>Force Sync Stock</span>
+      </div>
+      <div class="settings-item" id="menuRelinkPOS">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+        <span>Re-link POS Portal</span>
+      </div>
+      <div class="settings-item danger" id="menuSignOut">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"></path></svg>
+        <span>Sign Out</span>
+      </div>
+    </div>
+
+    <!-- ========================================= -->
+    <!-- VIEW 2: NATIVE B2B SOURCE TAB (DEFAULT)   -->
+    <!-- ========================================= -->
+    <div id="sourceView" class="source-container" style="display:none;">
+      
+      <!-- Live Sync Health Card -->
+      <div class="sync-card">
+        <div class="sync-card-row1">
+          <div class="sync-badge-live">
+            <span class="pulse-dot"></span>
+            <span>Live Sync Active</span>
+          </div>
+          <span class="sync-item-count" id="sourceItemCount">-- items synced</span>
+        </div>
+        <div class="sync-card-row2">
+          <span id="sourceLastSync">Synced just now</span>
+          <span class="btn-sync-now" id="btnSourceSyncNow">Sync Now 🔄</span>
+        </div>
+      </div>
+
+      <!-- Sourcing Header & Search Bar -->
+      <div>
+        <div class="sourcing-title-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <span class="sourcing-title">B2B Stock Sourcing</span>
+        </div>
+        <p class="sourcing-sub">Check neighboring pharmacy stock in real-time and source out-of-stock items.</p>
+      </div>
+
+      <!-- Search Form with Autocomplete -->
+      <form id="formSourceSearch" onsubmit="return false;" style="margin-top:-4px;">
+        <div class="search-wrapper">
+          <div class="search-input-group">
+            <input 
+              type="text" 
+              id="inputSourceQuery" 
+              class="search-input" 
+              placeholder="Search drug e.g. Augmentin, Paracetamol..." 
+              autocomplete="off"
+            />
+            <button type="submit" id="btnFindSource" class="btn-search">Find</button>
+          </div>
+          <div id="sourceSuggestions" class="suggestions-list"></div>
+        </div>
+      </form>
+
+      <!-- Sourcing Results List -->
+      <div id="sourceResultsList" class="results-container">
+        
+        <!-- Default Empty State -->
+        <div class="empty-state" id="sourceEmptyState">
+          <div class="empty-icon">🔍</div>
+          <div class="empty-title">Search Neighboring Stock</div>
+          <div class="empty-desc">Type any medication name above to see live inventory, distance, and wholesale pricing from verified nearby partners.</div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="sourceLoadingState" style="display:none; padding:24px; text-align:center;">
+          <div style="font-size:12px; color:var(--muted); display:inline-flex; align-items:center; gap:8px;">
+            <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            <span>Searching partner stock...</span>
+          </div>
+        </div>
+
+        <!-- Populated Cards Container -->
+        <div id="sourceCards" style="display:flex; flex-direction:column; gap:9px;"></div>
+
+      </div>
+
+    </div>
+
+    <!-- ========================================= -->
+    <!-- VIEW 1: ONBOARDING / SETUP WIZARD         -->
+    <!-- ========================================= -->
+    <div id="setupView" class="steps-container">
       
       <!-- STEP 0: AUTHENTICATION -->
       <div class="step-card active" id="stepAuth">
@@ -129,7 +425,7 @@
             <label style="font-size:11px; color:var(--muted); display:block; margin-bottom:4px;">Password</label>
             <div style="position:relative; width:100%;">
               <input type="password" id="authPassword" placeholder="••••••••" style="width:100%; padding:8px 32px 8px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; outline:none;" />
-              <button id="togglePasswordBtn" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--muted); cursor:pointer; padding:2px;">
+              <button id="togglePasswordBtn" type="button" style="position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--muted); cursor:pointer; padding:2px;">
                 <svg id="eyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                   <circle cx="12" cy="12" r="3"></circle>
@@ -145,10 +441,9 @@
 
         <button class="btn btn-primary" id="btnLogin">Log In to PharmastackX</button>
       </div>
-
       
       <!-- STEP 1: LINK POS PORTAL -->
-      <div class="step-card active" id="step1">
+      <div class="step-card active" id="step1" style="display:none;">
         <div class="step-header">
           <div class="step-num">1</div>
           <div class="step-title">Link POS Portal</div>
@@ -172,15 +467,12 @@
         </div>
       </div>
 
-
       <!-- STEP 2: INVENTORY -->
-      <div class="step-card" id="step2">
-          <div class="step-header">
-            <div class="step-num">2</div>
+      <div class="step-card" id="step2" style="display:none;">
+        <div class="step-header">
+          <div class="step-num">2</div>
           <div class="step-title">Sync Inventory</div>
         </div>
-
-        
         <p class="desc">Navigate to your PMS Inventory/Products page. If you have multiple pages, train the pagination button first.</p>
         
         <div class="alert alert-info" id="trainingAlert">Click the 'Next Page' button on your website now.</div>
@@ -199,7 +491,6 @@
           </button>
         </div>
 
-        <!-- Table Preview injected here by JS -->
         <div style="overflow-x:auto;">
           <table class="table-preview" id="inventoryTable">
             <thead id="inventoryHead"><tr><th>ID</th><th>Name</th><th>Qty</th><th>Price</th></tr></thead>
@@ -228,7 +519,6 @@
             </label>
           </div>
 
-          <!-- Dynamic Additional Columns (Brand, Size, Category, etc.) -->
           <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border); box-sizing:border-box; width:100%;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
               <span style="font-weight:600; font-size:11px; color:var(--text);">Additional Columns:</span>
@@ -243,40 +533,105 @@
         </div>
 
         <div class="btn-group" id="s2-confirm-btns" style="display:none; margin-top:12px;">
-            <button class="btn btn-primary" id="btnConfirmInventory">Looks Good!</button>
+          <button class="btn btn-primary" id="btnConfirmInventory">Looks Good!</button>
           <button class="btn btn-secondary" id="btnMapColumns">Fix Columns</button>
         </div>
       </div>
 
-      <!-- STEP 2: MOCK SALE -->
-      <div class="step-card" id="step3">
-          <div class="step-header">
-            <div class="step-num">3</div>
+      <!-- STEP 3: MOCK SALE -->
+      <div class="step-card" id="step3" style="display:none;">
+        <div class="step-header">
+          <div class="step-num">3</div>
           <div class="step-title">Mock Sale Test</div>
         </div>
         <p class="desc">Please perform a full checkout in your software right now. We are silently watching the network for the receipt data.</p>
         
         <div class="alert alert-info" id="listeningAlert" style="display:block;">Listening for network responses...</div>
+        <div id="networkFeed" style="margin-top:12px; display:flex; flex-direction:column; gap:10px; max-height: 250px; overflow-y: auto;"></div>
 
-        <div id="networkFeed" style="margin-top:12px; display:flex; flex-direction:column; gap:10px; max-height: 250px; overflow-y: auto;">
-          <!-- Network event cards injected here -->
-        </div>
-
-        <div class="btn-group" id="s2-confirm-btns" style="margin-top:12px;">
+        <div class="btn-group" id="s3-confirm-btns" style="margin-top:12px;">
           <button class="btn btn-primary" id="btnConfirmSale">Confirm & Finish</button>
         </div>
       </div>
 
-      <!-- STEP 3: COMPLETE -->
-      <div class="step-card" id="step4">
-          <div class="step-header">
-            <div class="step-num">4</div>
+      <!-- STEP 4: COMPLETE -->
+      <div class="step-card" id="step4" style="display:none;">
+        <div class="step-header">
+          <div class="step-num">4</div>
           <div class="step-title">Setup Complete</div>
         </div>
-        <p class="desc" style="margin-bottom:0; color:#3fb950;">PharmastackX is now securely synced to your cloud provider. You can close this panel.</p>
+        <p class="desc" style="color:#3fb950; margin-bottom:12px;">PharmastackX is now securely synced to your cloud provider.</p>
+        <button class="btn btn-primary" id="btnOpenSourceTab">Open B2B Sourcing Cockpit →</button>
       </div>
 
     </div>
+
+    <!-- ========================================= -->
+    <!-- SLIDE-OVER PROCUREMENT DRAWER             -->
+    <!-- ========================================= -->
+    <div id="drawerBackdrop" class="drawer-backdrop"></div>
+    <div id="checkoutDrawer" class="drawer-panel">
+      <div class="drawer-header">
+        <div>
+          <div class="drawer-title" id="drawerItemName">Procure Item</div>
+          <div style="font-size:11px; color:var(--muted);" id="drawerSellerName">Verified Partner Pharmacy</div>
+        </div>
+        <button class="drawer-close" id="btnDrawerClose">✕</button>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:12px; margin-top:4px;">
+        <div style="background:var(--surface2); padding:10px 12px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <span style="font-size:10px; color:var(--muted); display:block;">Unit Price</span>
+            <span style="font-weight:700; font-size:14px; color:var(--accent);" id="drawerUnitPrice">₦0</span>
+          </div>
+          <div>
+            <span style="font-size:10px; color:var(--muted); display:block;">Available Qty</span>
+            <span style="font-weight:600; font-size:12px; color:var(--green-bright);" id="drawerAvailQty">0 packs</span>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+          <span style="font-size:12px; font-weight:600;">Quantity to Request:</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button id="btnQtyMinus" class="btn-modal btn-modal-cancel" style="padding:4px 9px;">-</button>
+            <span id="drawerOrderQty" style="font-weight:700; font-size:14px; min-width:24px; text-align:center;">1</span>
+            <button id="btnQtyPlus" class="btn-modal btn-modal-cancel" style="padding:4px 9px;">+</button>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid var(--border); padding-top:10px; display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:12px; color:var(--muted);">Estimated Subtotal:</span>
+          <span style="font-size:15px; font-weight:800; color:var(--text);" id="drawerSubtotal">₦0</span>
+        </div>
+
+        <div id="drawerSuccessToast" class="alert alert-success" style="display:none; margin-bottom:0;">
+          ✅ Request submitted! Dispatch partner notified.
+        </div>
+
+        <button class="btn btn-primary" id="btnSubmitOrder" style="margin-top:6px;">
+          Confirm Sourcing Request
+        </button>
+        <button class="btn btn-secondary" id="btnPopoutCheckout" style="font-size:11px; padding:6px 10px;">
+          Open in Full Tab ↗
+        </button>
+      </div>
+    </div>
+
+    <!-- ========================================= -->
+    <!-- CONFIRMATION ACTION MODAL (SETTINGS)      -->
+    <!-- ========================================= -->
+    <div id="confirmModal" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-title" id="modalTitle">Confirm Action</div>
+        <p class="modal-desc" id="modalDesc">Are you sure you want to proceed?</p>
+        <div class="modal-actions">
+          <button class="btn-modal btn-modal-cancel" id="btnModalCancel">Cancel</button>
+          <button class="btn-modal btn-modal-confirm" id="btnModalConfirm">Confirm</button>
+        </div>
+      </div>
+    </div>
+
   </div>
   <script src="sidepanel.js"></script>
 </body>

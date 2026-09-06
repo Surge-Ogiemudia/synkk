@@ -9,7 +9,7 @@
     "dev": "concurrently -k \"vite\" \"tsup --watch --onSuccess \\\"electron .\\\"\"",
     "build": "vite build && tsup",
     "preview": "vite preview",
-    "pack-extension": "powershell -NoProfile -Command \"Compress-Archive -Path 'extension/*' -DestinationPath '../zipped pharmastackx/public/downloads/synkk-extension.zip' -Force\"",
+    "pack-extension": "powershell -NoProfile -Command \"Compress-Archive -Path 'extension/*' -DestinationPath '../../zipped pharmastackx/public/downloads/synkk-extension.zip' -Force\"",
     "package": "npm run build && electron-builder --win --config electron-builder.config.js --publish always"
   },
   "devDependencies": {
