@@ -481,6 +481,13 @@ export function setupIpc() {
       }
 
       setStore('pairing', payload);
+      const sf = getStore('storefront') as any;
+      if (sf?.slug) {
+        setStore(`pairing_${sf.slug}`, payload);
+      }
+      if (payload?.connectionType === 'desktop' && payload?.posIdentifier) {
+        setStore('last_known_desktop_pairing', payload);
+      }
       const { updateKnowledgeBase } = require('../brain/knowledge');
       const success = await updateKnowledgeBase(payload);
       return { success };
@@ -567,6 +574,20 @@ export function setupIpc() {
 
   ipcMain.handle('save-storefront-data', async (event, data: any) => {
     setStore('storefront', data);
+    if (data?.slug) {
+      const userPairing = getStore(`pairing_${data.slug}`) as any;
+      if (userPairing) {
+        setStore('pairing', userPairing);
+      } else {
+        const lastDesktopPairing = getStore('last_known_desktop_pairing') as any;
+        if (lastDesktopPairing && lastDesktopPairing.posIdentifier && fs.existsSync(lastDesktopPairing.posIdentifier)) {
+          if (data.slug === 'utah-pharmacy' || data.posType === 'desktop') {
+            setStore('pairing', lastDesktopPairing);
+            setStore(`pairing_${data.slug}`, lastDesktopPairing);
+          }
+        }
+      }
+    }
     return true;
   });
 
@@ -641,7 +662,23 @@ export function setupIpc() {
   });
 
   ipcMain.handle('get-pairing-data', async (event) => {
-    return getStore('pairing');
+    let pairing = getStore('pairing') as any;
+    const sf = getStore('storefront') as any;
+    if ((!pairing || !pairing.posIdentifier) && sf?.slug) {
+      const userPairing = getStore(`pairing_${sf.slug}`) as any;
+      if (userPairing) {
+        pairing = userPairing;
+        setStore('pairing', userPairing);
+      } else if (sf.slug === 'utah-pharmacy' || sf.posType === 'desktop') {
+        const lastDesktopPairing = getStore('last_known_desktop_pairing') as any;
+        if (lastDesktopPairing && lastDesktopPairing.posIdentifier && fs.existsSync(lastDesktopPairing.posIdentifier)) {
+          pairing = lastDesktopPairing;
+          setStore('pairing', pairing);
+          setStore(`pairing_${sf.slug}`, pairing);
+        }
+      }
+    }
+    return pairing;
   });
 
   ipcMain.handle('check-pos-exists', async () => {
@@ -1209,8 +1246,15 @@ ipcMain.handle('update-csv-path', async (event) => {
     try {
       // 1. Clear active storefront session profile, pairing, and local inventory snapshots
       const currentStorefront = getStore('storefront') as any;
+      const currentPairing = getStore('pairing') as any;
       if (currentStorefront?.slug) {
         setStore(`lastSyncSnapshot_${currentStorefront.slug}`, null);
+        if (currentPairing) {
+          setStore(`pairing_${currentStorefront.slug}`, currentPairing);
+          if (currentPairing.connectionType === 'desktop' && currentPairing.posIdentifier) {
+            setStore('last_known_desktop_pairing', currentPairing);
+          }
+        }
       }
       setStore('lastSyncSnapshot', null);
       setStore('storefront', null);
