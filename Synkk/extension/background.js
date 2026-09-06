@@ -12,7 +12,7 @@ chrome.action.onClicked.addListener((tab) => {
 // ==========================================
 // Cloud Sync Logic (Local-First Reconciliation)
 // ==========================================
-const CLOUD_API = 'https://www.pharmastackx.com/api/extension';
+const CLOUD_API = 'https://www.psx.ng/api/extension';
 
 // Initialize persistent terminalId for multi-counter tagging (defaults to Counter 1)
 chrome.storage.local.get(['terminalId'], (res) => {
