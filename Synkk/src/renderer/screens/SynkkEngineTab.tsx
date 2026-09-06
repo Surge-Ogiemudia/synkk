@@ -52,19 +52,25 @@ export default function SynkkEngineTab() {
             if (synkkStatus?.posType === 'web-pos' || synkkStatus?.connectionType === 'web-pos') {
               await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
               shouldAutoSkip = true;
+            } else if (synkkStatus?.posType === 'desktop' || synkkStatus?.connectionType === 'desktop') {
+              await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: 'desktop-db' });
+              shouldAutoSkip = true;
             } else {
               // Check Web POS extension data
               const res = await fetch(`https://www.psx.ng/api/extension/dashboard-data?pharmacyId=${encodeURIComponent(storefront.slug)}`);
               if (res.ok) {
                 const data = await res.json();
-                if ((data.inventory && data.inventory.length > 0) || (data.sales && data.sales.length > 0) || data.networkLogsCount > 0 || (data.pmsInfo && data.pmsInfo.pmsUrl !== 'None')) {
+                if (data.isWebPos || data.connectionType === 'web-pos' || (data.extensionInventory && data.extensionInventory.length > 0) || (data.sales && data.sales.length > 0)) {
                   await ipcRenderer.invoke('save-learned-system', { connectionType: 'web-pos', posIdentifier: 'web-extension' });
+                  shouldAutoSkip = true;
+                } else if (data.desktopInventory && data.desktopInventory.length > 0) {
+                  await ipcRenderer.invoke('save-learned-system', { connectionType: 'desktop', posIdentifier: 'desktop-db' });
                   shouldAutoSkip = true;
                 }
               }
             }
 
-            // Check Desktop Sync inventory data
+            // Fallback: if they have items synced in cloud, auto-skip to Done screen
             if (!shouldAutoSkip && synkkStatus && synkkStatus.itemCount > 0) {
               shouldAutoSkip = true;
             }
