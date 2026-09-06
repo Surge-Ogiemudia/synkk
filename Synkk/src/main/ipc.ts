@@ -1,4 +1,4 @@
-import { ipcMain, dialog, safeStorage, BrowserWindow, app, session, desktopCapturer } from 'electron';
+import { ipcMain, dialog, safeStorage, BrowserWindow, app, session, desktopCapturer, shell } from 'electron';
 import { analyzePOSSystem } from '../brain/analyser';
 import { executeSync } from './sync';
 import { getStore, setStore } from '../store/local';
@@ -327,35 +327,72 @@ export function setupIpc() {
 
   ipcMain.handle('export-extension', async () => {
     try {
-      let sourceDir = path.join(__dirname, '../../extension');
-      if (!fs.existsSync(sourceDir)) {
-        sourceDir = path.join(process.resourcesPath, 'extension');
-      }
-      if (!fs.existsSync(sourceDir)) {
-        sourceDir = path.join(os.homedir(), 'Desktop', 'PST', 'extension');
-      }
-      if (!fs.existsSync(sourceDir)) {
-        sourceDir = path.join(os.homedir(), 'Desktop', 'Synkk-Extension');
-      }
-      
       const targetDir = path.join(os.homedir(), 'Desktop', 'Synkk-Extension');
-      
-      if (!fs.existsSync(sourceDir)) {
-        throw new Error(`Extension source folder not found`);
-      }
-      
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
       }
-      
-      // Copy all files recursively
-      if (sourceDir !== targetDir) {
-        fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
+
+      let downloadedFromCloud = false;
+
+      // 1. Fetch latest extension zip dynamically from Cloud (Zero Desktop Rebuilds)
+      const cloudUrls = [
+        'https://www.psx.ng/downloads/synkk-extension.zip',
+        'https://www.pharmastackx.com/downloads/synkk-extension.zip'
+      ];
+
+      for (const url of cloudUrls) {
+        try {
+          console.log(`[ExportExtension] Attempting cloud download from: ${url}`);
+          const res = await fetch(url);
+          if (res.ok) {
+            const arrayBuf = await res.arrayBuffer();
+            if (arrayBuf.byteLength > 1000) {
+              const tempZip = path.join(app.getPath('temp'), `synkk-ext-${Date.now()}.zip`);
+              fs.writeFileSync(tempZip, Buffer.from(arrayBuf));
+
+              const { execSync } = require('child_process');
+              execSync(`powershell -NoProfile -NonInteractive -Command "Expand-Archive -LiteralPath '${tempZip}' -DestinationPath '${targetDir}' -Force"`);
+              try { fs.unlinkSync(tempZip); } catch (_) {}
+              
+              downloadedFromCloud = true;
+              console.log(`[ExportExtension] Successfully deployed latest cloud extension (${arrayBuf.byteLength} bytes) to: ${targetDir}`);
+              break;
+            }
+          }
+        } catch (fetchErr: any) {
+          console.warn(`[ExportExtension] Cloud download failed for ${url}:`, fetchErr.message);
+        }
       }
+
+      // 2. Offline / Local fallback if cloud was unreachable
+      if (!downloadedFromCloud) {
+        console.log('[ExportExtension] Falling back to local bundled extension files...');
+        let sourceDir = path.join(__dirname, '../../extension');
+        if (!fs.existsSync(sourceDir)) {
+          sourceDir = path.join(process.resourcesPath, 'extension');
+        }
+        if (!fs.existsSync(sourceDir)) {
+          sourceDir = path.join(os.homedir(), 'Desktop', 'PST', 'extension');
+        }
+        if (!fs.existsSync(sourceDir)) {
+          sourceDir = path.join(os.homedir(), 'Desktop', 'Synkk-Extension');
+        }
+        
+        if (!fs.existsSync(sourceDir)) {
+          throw new Error(`Extension source files not found`);
+        }
+        
+        if (sourceDir !== targetDir) {
+          fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
+        }
+      }
+
+      // 3. Open the folder in Windows File Explorer automatically
+      shell.openPath(targetDir);
       
-      return { success: true, path: targetDir };
+      return { success: true, path: targetDir, cloud: downloadedFromCloud };
     } catch (e: any) {
-      console.error('Failed to copy extension folder:', e.message);
+      console.error('Failed to export extension:', e.message);
       return { success: false, error: e.message };
     }
   });
