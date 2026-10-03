@@ -1,4 +1,5 @@
 import { getStore, setStore } from '../store/local';
+import { psxAuthHeader } from './psxAuth';
 import { safeStorage } from 'electron';
 import { executeSync } from './sync';
 import { broadcastSyncStream } from './sync';
@@ -47,7 +48,7 @@ async function pollForCommands() {
       `${baseUrl}/api/admin/remote-commands/pending?slug=${encodeURIComponent(storefrontData.slug)}`,
       {
         headers: {
-          'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`,
+          'Authorization': await psxAuthHeader(),
           'Content-Type': 'application/json'
         }
       }
@@ -171,7 +172,7 @@ async function executeRemoteCommand(cmd: RemoteCommand, slug: string, baseUrl: s
     await fetch(`${baseUrl}/api/admin/remote-commands/ack`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`,
+        'Authorization': await psxAuthHeader(),
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -219,7 +220,7 @@ export async function reportSessionExpired(pharmacySlug: string, posUrl: string)
     await fetch(`${baseUrl}/api/admin/pharmacy/session-expired`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`,
+        'Authorization': await psxAuthHeader(),
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({

@@ -2,6 +2,7 @@ import { ipcMain, dialog, safeStorage, BrowserWindow, app, session, desktopCaptu
 import { analyzePOSSystem } from '../brain/analyser';
 import { executeSync } from './sync';
 import { getStore, setStore } from '../store/local';
+import { psxAuthHeader, handleAuthRejection } from './psxAuth';
 
 import * as path from 'path';
 import * as os from 'os';
@@ -683,10 +684,11 @@ export function setupIpc() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer dev-token' // TODO: implement real token if needed, or rely on session
+          'Authorization': await psxAuthHeader()
         },
         body: JSON.stringify({ orderId, status })
       });
+      handleAuthRejection(response.status);
       return await response.json();
     } catch (e) {
       console.error(e);

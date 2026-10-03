@@ -1,4 +1,5 @@
 import { getStore, setStore } from '../store/local';
+import { psxAuthHeader, handleAuthRejection } from './psxAuth';
 import { updateTrayStatus } from './tray';
 import { sendFailureAlertEmail } from './mailer';
 import { net, safeStorage, BrowserWindow, app, session } from 'electron';
@@ -285,12 +286,13 @@ async function shipTelemetry(payload: TelemetryPayload) {
     await axios.post('https://www.pharmastackx.com/api/synkk-admin/telemetry', payload, {
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
+        'Authorization': await psxAuthHeader()
       },
       timeout: 15000
     });
     console.log('[TELEMETRY] Successfully shipped sync telemetry to cloud.');
   } catch (e: any) {
+    handleAuthRejection(e?.response?.status);
     console.error('[TELEMETRY] Failed to ship telemetry:', e.message);
   }
 }
@@ -399,7 +401,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
           }, {
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
+              'Authorization': await psxAuthHeader()
             },
             timeout: 15000
           });
@@ -409,6 +411,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
             lastMap.set(currentItem.name, currentItem);
           }
         } catch (e: any) {
+          handleAuthRejection(e?.response?.status);
           console.error('Stream batch push failed:', e.message);
         }
       }
@@ -576,7 +579,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
           }, {
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
+              'Authorization': await psxAuthHeader()
             },
             timeout: 30000
           });
@@ -602,7 +605,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
           lastResponse = await axios.post('https://www.pharmastackx.com/api/sync', payload, {
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${process.env.SYNKK_API_KEY || 'dev-token'}`
+              'Authorization': await psxAuthHeader()
             },
             timeout: 60000 // Give each chunk 60s since it passes through AI
           });
@@ -629,6 +632,7 @@ export async function executeSync(trigger: string = 'scheduled'): Promise<{ stat
       setStore('lastSyncSnapshot', rawInventory);
       setStore('lastSyncTime', new Date().toISOString());
     } catch (pushError: any) {
+      handleAuthRejection(pushError?.response?.status);
       console.error('Failed to push to cloud API:', pushError.message);
       broadcastSyncProgress(90, `Cloud Push Failed: ${pushError.message}`);
       telemetry.addStep('CLOUD_PUSH', `Push failed: ${pushError.message}`, false);
