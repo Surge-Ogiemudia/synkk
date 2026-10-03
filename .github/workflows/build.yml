@@ -1,9 +1,18 @@
 name: Build Synkk Executable
 
+# Pushes to main only build the installer and attach it to the run for testing.
+# Publishing to synkk-downloads (which every installed Synkk auto-updates from)
+# only happens when the workflow is run manually with "publish" ticked.
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish this build to synkk-downloads (every pharmacy auto-updates to it)"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -11,10 +20,10 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
@@ -22,11 +31,16 @@ jobs:
         working-directory: ./Synkk
         run: npm install
 
-      - name: Build and Package
+      - name: Build installer (not published)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish) }}
         working-directory: ./Synkk
         run: npm run package
+
+      - name: Build and publish release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+        working-directory: ./Synkk
+        run: npm run release
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Upload Artifact
