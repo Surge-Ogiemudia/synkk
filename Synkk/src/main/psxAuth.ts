@@ -16,6 +16,12 @@ type SavedDeviceKey = { key: string; slug: string };
 
 let inflight: Promise<string | null> | null = null;
 
+// After a failed attempt (no usable login, server error, or a key for a different
+// pharmacy than the active storefront), wait before asking again so the app
+// doesn't request a new key on every sync. Restarting the app retries at once.
+const RETRY_AFTER_MS = 6 * 60 * 60 * 1000;
+let lastFailure: { slug: string; at: number } | null = null;
+
 function activeSlug(): string | undefined {
   const storefront = getStore('storefront') as any;
   return storefront?.slug || undefined;
@@ -78,11 +84,19 @@ export async function ensureDeviceKey(): Promise<string | null> {
   const saved = getStore('synkkDeviceKey') as SavedDeviceKey | null;
   if (saved?.key && saved.slug === slug) return saved.key;
 
+  if (lastFailure && lastFailure.slug === slug && Date.now() - lastFailure.at < RETRY_AFTER_MS) {
+    return null;
+  }
+
   if (!inflight) {
     inflight = requestDeviceKey(slug)
       .catch((err) => {
         console.error('[PsxAuth] Could not obtain a device key:', err?.message || err);
         return null;
+      })
+      .then((key) => {
+        lastFailure = key ? null : { slug, at: Date.now() };
+        return key;
       })
       .finally(() => {
         inflight = null;
