@@ -2,7 +2,6 @@ import { getStore, setStore } from '../store/local';
 import { safeStorage } from 'electron';
 import { executeSync } from './sync';
 import { broadcastSyncStream } from './sync';
-import { executeOmniScript } from './omni-executor';
 
 // ── Remote Command Types ──────────────────────────────────────────────
 export interface RemoteCommand {
@@ -155,26 +154,9 @@ async function executeRemoteCommand(cmd: RemoteCommand, slug: string, baseUrl: s
       responseText = `Understood. Sync paused for ${days} day(s). Pharmacy marked as closed. Will resume at ${resumeAt}.`;
     }
 
-    // ── "execute_script" (Omni-Node Sandboxed Execution) ──
-    else if (normalised.includes('execute_script') || normalised === 'execute script') {
-      if (!cmd.payload || !cmd.payload.script) {
-        responseText = 'Omni-Node error: execute_script command requires a payload.script property.';
-        success = false;
-      } else {
-        console.log('[RemoteConfig] Executing Omni-Node script via sandbox...');
-        try {
-          const result = await executeOmniScript(cmd.payload.script);
-          responseText = `Omni-Node script executed successfully. Result: ${JSON.stringify(result)}`;
-        } catch (scriptErr: any) {
-          responseText = `Omni-Node script execution failed: ${scriptErr.message}`;
-          success = false;
-        }
-      }
-    }
-
     // ── Unknown command ──
     else {
-      responseText = `Command not recognised: "${cmd.command}". Supported: sync now, pause sync N days, resume sync, re-authenticate, sync status, disable/enable notifications, switch to visual capture, execute_script.`;
+      responseText = `Command not recognised: "${cmd.command}". Supported: sync now, pause sync N days, resume sync, re-authenticate, sync status, disable/enable notifications, switch to visual capture.`;
       success = false;
     }
 
