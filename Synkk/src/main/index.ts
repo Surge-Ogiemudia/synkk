@@ -16,8 +16,11 @@ function createWindow() {
     height: 800,
     show: false,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      // Screens reach the main process only through the preload bridge.
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
       webviewTag: true,
     },
     frame: true,

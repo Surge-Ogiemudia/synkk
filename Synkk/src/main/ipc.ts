@@ -22,6 +22,19 @@ function logTrace(msg: string) {
 }
 
 export function setupIpc() {
+  // Used by the screens (via the preload bridge) to open links in the browser.
+  ipcMain.handle('open-external', async (_event, url: string) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return;
+    }
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      await shell.openExternal(parsed.toString());
+    }
+  });
+
   ipcMain.handle('log-trace', (event, message: string) => {
     logTrace(message);
     return { success: true };
