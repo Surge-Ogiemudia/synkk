@@ -8,13 +8,30 @@ export async function fetchPendingOrders(slug: string) {
 }
 
 export async function updateOrderStatus(orderId: string, status: string) {
+  const body = JSON.stringify({ orderId, status });
+
+  // Authenticate with the pharmacist's login cookie (shared across *.psx.ng).
+  try {
+    const res = await fetch(`${API_BASE}/api/orders`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    if (res.status !== 401) return res.json();
+  } catch (err) {
+    console.warn('Order update with login cookie failed, using legacy auth:', err);
+  }
+
+  // TEMPORARY: legacy shared token while the cookie path rolls out; removed
+  // together with the token on the server.
   const res = await fetch(`${API_BASE}/api/orders`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       Authorization: 'Bearer dev-token',
     },
-    body: JSON.stringify({ orderId, status }),
+    body,
   });
   return res.json();
 }
