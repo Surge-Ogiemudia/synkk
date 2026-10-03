@@ -1,3 +1,12 @@
+// Calls to the PharmastackX extension API carry the device key issued at login;
+// the server identifies the pharmacy from it.
+async function cloudFetch(url, options = {}) {
+  const { deviceKey } = await chrome.storage.local.get(["deviceKey"]);
+  const headers = { ...(options.headers || {}) };
+  if (deviceKey) headers["Authorization"] = `Bearer ${deviceKey}`;
+  return fetch(url, { ...options, headers });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // Views
   const setupView = document.getElementById("setupView");
@@ -225,8 +234,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function checkAuth() {
-    chrome.storage.local.get(["currentUser", "currentPharmacy", "setupComplete"], (data) => {
-      if (data.currentUser && data.currentPharmacy) {
+    chrome.storage.local.get(["currentUser", "currentPharmacy", "setupComplete", "deviceKey"], (data) => {
+      // A login from before device keys has no key; it must log in again.
+      if (data.currentUser && data.currentPharmacy && data.deviceKey) {
         currentSession = { user: data.currentUser, pharmacy: data.currentPharmacy };
         
         if (data.setupComplete) {
@@ -502,7 +512,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Record search to backend
       const pharmacyId = (currentSession && currentSession.pharmacy && currentSession.pharmacy.id) || "DEFAULT";
-      fetch("https://www.psx.ng/api/extension/record-search", {
+      cloudFetch("https://www.psx.ng/api/extension/record-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -628,16 +638,17 @@ document.addEventListener("DOMContentLoaded", () => {
     btnLogin.disabled = true;
     authAlert.style.display = "none";
 
+    const termVal = authTerminalName && authTerminalName.value.trim() ? authTerminalName.value.trim() : "Counter 1";
+
     try {
       const res = await fetch("https://www.psx.ng/api/extension/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password, terminalId: termVal })
       });
 
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        const termVal = authTerminalName && authTerminalName.value.trim() ? authTerminalName.value.trim() : "Counter 1";
+      if (res.ok && data.success && data.deviceKey) {
         const pharmacy = data.pharmacy || {
           id: data.pharmacyId || (data.user && data.user.id) || "DEFAULT",
           name: data.pharmacyName || (data.user && data.user.name) || "My Pharmacy",
@@ -647,7 +658,8 @@ document.addEventListener("DOMContentLoaded", () => {
           {
             currentUser: data.user,
             currentPharmacy: pharmacy,
-            terminalId: termVal
+            terminalId: termVal,
+            deviceKey: data.deviceKey
           },
           () => {
             checkAuth();
@@ -673,7 +685,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (btnLogout) {
     btnLogout.addEventListener("click", () => {
-      chrome.storage.local.remove(["currentUser", "currentPharmacy", "setupComplete"], () => {
+      chrome.storage.local.remove(["currentUser", "currentPharmacy", "setupComplete", "deviceKey"], () => {
         checkAuth();
       });
     });
@@ -721,7 +733,7 @@ document.addEventListener("DOMContentLoaded", () => {
       step2.style.pointerEvents = "auto";
 
       const pharmacyId = currentSession ? currentSession.pharmacy.id : "DEFAULT";
-      fetch("https://www.psx.ng/api/extension/save-pms-credentials", {
+      cloudFetch("https://www.psx.ng/api/extension/save-pms-credentials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -757,7 +769,7 @@ document.addEventListener("DOMContentLoaded", () => {
       step2.style.pointerEvents = "auto";
 
       const pharmacyId = currentSession ? currentSession.pharmacy.id : "DEFAULT";
-      fetch("https://www.psx.ng/api/extension/save-pms-credentials", {
+      cloudFetch("https://www.psx.ng/api/extension/save-pms-credentials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -960,7 +972,7 @@ document.addEventListener("DOMContentLoaded", () => {
           chrome.runtime.sendMessage({ action: "TRIGGER_SYNC" });
 
           if (activePMSMetadata) {
-            fetch("https://www.psx.ng/api/extension/save-pms-credentials", {
+            cloudFetch("https://www.psx.ng/api/extension/save-pms-credentials", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({

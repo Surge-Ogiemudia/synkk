@@ -177,7 +177,7 @@ function checkAndAutoSyncInventory() {
 
     // Check throttle (auto-sync once every 10 minutes per domain)
     const hostKey = "lastAutoSync_" + window.location.hostname;
-    chrome.storage.local.get([hostKey, "currentPharmacy"], (stored) => {
+    chrome.storage.local.get([hostKey, "currentPharmacy", "deviceKey"], (stored) => {
       const lastSync = stored[hostKey] || 0;
       const now = Date.now();
 
@@ -196,7 +196,8 @@ function checkAndAutoSyncInventory() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               pharmacyId: pharmacyId,
-              rows: data.rows
+              rows: data.rows,
+              deviceKey: stored.deviceKey
             })
           }).then(() => {
             console.log(`📦 [PharmastackX] Silently auto-synced ${data.rows.length} total inventory items!`);
@@ -597,12 +598,12 @@ function flushNetworkLogs() {
   const logsToFlush = [...networkLogBuffer];
   networkLogBuffer = [];
 
-  chrome.storage.local.get(["currentPharmacy"], (stored) => {
+  chrome.storage.local.get(["currentPharmacy", "deviceKey"], (stored) => {
     const pharmacyId = (stored.currentPharmacy && stored.currentPharmacy.id) ? stored.currentPharmacy.id : 'DEFAULT';
     fetch("https://www.pharmastackx.com/api/extension/log-network-traffic", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pharmacyId, logs: logsToFlush })
+      body: JSON.stringify({ pharmacyId, logs: logsToFlush, deviceKey: stored.deviceKey })
     }).catch(e => {});
   });
 }
@@ -627,7 +628,7 @@ async function triggerBackgroundAPIPagination(url, pageOneItems) {
 
     // Check domain throttle
     const hostKey = "lastAPISync_" + window.location.hostname;
-    const stored = await new Promise(resolve => chrome.storage.local.get([hostKey, "currentPharmacy"], resolve));
+    const stored = await new Promise(resolve => chrome.storage.local.get([hostKey, "currentPharmacy", "deviceKey"], resolve));
     const lastSync = stored[hostKey] || 0;
     const now = Date.now();
 
@@ -665,7 +666,8 @@ async function triggerBackgroundAPIPagination(url, pageOneItems) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pharmacyId: pharmacyId,
-        rows: allItems
+        rows: allItems,
+        deviceKey: stored.deviceKey
       })
     }).then(() => {
       console.log("📦 [PharmastackX] Complete multi-page inventory synced to MongoDB!");

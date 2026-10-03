@@ -14,6 +14,15 @@ chrome.action.onClicked.addListener((tab) => {
 // ==========================================
 const CLOUD_API = 'https://www.psx.ng/api/extension';
 
+// Calls to the PharmastackX extension API carry the device key issued at login;
+// the server identifies the pharmacy from it.
+async function cloudFetch(url, options = {}) {
+  const { deviceKey } = await chrome.storage.local.get(['deviceKey']);
+  const headers = { ...(options.headers || {}) };
+  if (deviceKey) headers['Authorization'] = `Bearer ${deviceKey}`;
+  return fetch(url, { ...options, headers });
+}
+
 // Initialize persistent terminalId for multi-counter tagging (defaults to Counter 1)
 chrome.storage.local.get(['terminalId'], (res) => {
   if (!res.terminalId) {
@@ -32,7 +41,7 @@ async function syncInventoryToCloud() {
   const rows = Array.isArray(data.unsyncedInventory) ? data.unsyncedInventory : (data.unsyncedInventory.rows || []);
 
   try {
-    const res = await fetch(`${CLOUD_API}/sync-inventory`, {
+    const res = await cloudFetch(`${CLOUD_API}/sync-inventory`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pharmacyId: pharmacyId, rows: rows })
@@ -55,7 +64,7 @@ async function syncSalesToCloud() {
   for (const sale of data.unsyncedSales) {
     const pharmacyId = sale.pharmacyId || (data.currentPharmacy && data.currentPharmacy.id) || 'DEFAULT';
     try {
-      const res = await fetch(`${CLOUD_API}/record-sale`, {
+      const res = await cloudFetch(`${CLOUD_API}/record-sale`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -92,7 +101,7 @@ async function syncSearchesToCloud() {
   const searchesToSend = [...data.unsyncedSearches];
 
   try {
-    const res = await fetch(`${CLOUD_API}/record-search`, {
+    const res = await cloudFetch(`${CLOUD_API}/record-search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -173,7 +182,7 @@ async function runAutonomousInventorySync(forced = false) {
 
       if (allItems.length > 0) {
         console.log(`✅ [PharmastackX] API Replay fetched ${allItems.length} items! Syncing to cloud...`);
-        await fetch(`${CLOUD_API}/sync-inventory`, {
+        await cloudFetch(`${CLOUD_API}/sync-inventory`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pharmacyId: pharmacyId, rows: allItems })
@@ -213,13 +222,13 @@ async function checkRemoteSyncRequests() {
   if (!pharmacyId || pharmacyId === 'DEFAULT') return;
 
   try {
-    const res = await fetch(`${CLOUD_API}/request-sync?pharmacyId=${pharmacyId}`);
+    const res = await cloudFetch(`${CLOUD_API}/request-sync`);
     if (res.ok) {
       const json = await res.json();
       if (json.syncRequested) {
         console.log('⚡ [PharmastackX] Remote Admin Snapshot Request received!');
         // Acknowledge receipt
-        fetch(`${CLOUD_API}/request-sync`, {
+        cloudFetch(`${CLOUD_API}/request-sync`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pharmacyId: pharmacyId, action: 'acknowledge' })
@@ -323,7 +332,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }).filter(r => !(r.name === 'Item' && r.qty === 0 && r.price === 0));
       }
 
-      fetch(`${CLOUD_API}/sync-inventory`, {
+      cloudFetch(`${CLOUD_API}/sync-inventory`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pharmacyId: pharmacyId, rows: finalRows })
